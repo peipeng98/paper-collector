@@ -16,3 +16,6 @@ python -m http.server 8000 --directory web
 ```text
 http://localhost:8000
 ```
+
+网页查看：
+https://peipeng98.github.io/paper-collector/
