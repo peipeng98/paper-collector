@@ -1,0 +1,366 @@
+{
+  "generated_at": "Sat, 30 May 2026 06:19:13 +0000",
+  "generated_at_iso": "2026-05-30T06:19:13.607095+00:00",
+  "config_source": "issue",
+  "data_kind": "daily",
+  "topics": [
+    {
+      "id": "llm_low_precision_quantization",
+      "name": "大模型低精度量化",
+      "description": "关注大语言模型低比特量化、混合精度、量化感知训练、后训练量化、权重量化、激活量化、KV cache 量化以及量化对推理性能和精度的影响。",
+      "keywords": [
+        "large language model quantization",
+        "LLM quantization",
+        "low-bit quantization",
+        "post-training quantization",
+        "weight-only quantization",
+        "activation quantization",
+        "mixed precision",
+        "FP8",
+        "INT4",
+        "INT8",
+        "KV cache quantization"
+      ],
+      "arxiv_categories": [
+        "cs.CL",
+        "cs.LG",
+        "cs.AI",
+        "cs.DC"
+      ]
+    },
+    {
+      "id": "tensor_compute_unit_architecture",
+      "name": "张量计算单元结构",
+      "description": "关注 GPU/NPU/TPU 张量计算单元、矩阵乘加阵列、数据流架构、片上存储层次、低精度张量核、AI 加速器微架构和算子映射。",
+      "keywords": [
+        "tensor processing unit",
+        "tensor core",
+        "matrix multiply unit",
+        "systolic array",
+        "AI accelerator architecture",
+        "NPU architecture",
+        "GPU tensor core",
+        "low precision tensor compute",
+        "dataflow architecture",
+        "on-chip memory hierarchy"
+      ],
+      "arxiv_categories": [
+        "cs.AR",
+        "cs.DC",
+        "cs.LG",
+        "cs.PF"
+      ]
+    },
+    {
+      "id": "llm_inference_cluster_communication",
+      "name": "大模型推理集群通信优化",
+      "description": "关注分布式大模型推理、prefill/decode 分离、张量并行、流水并行、专家并行、跨节点通信、调度、负载均衡和 serving 系统吞吐延迟优化。",
+      "keywords": [
+        "LLM inference serving",
+        "distributed inference",
+        "inference cluster",
+        "tensor parallelism",
+        "pipeline parallelism",
+        "expert parallelism",
+        "all-reduce",
+        "collective communication",
+        "prefill decode disaggregation",
+        "serving scheduler"
+      ],
+      "arxiv_categories": [
+        "cs.DC",
+        "cs.PF",
+        "cs.CL",
+        "cs.LG"
+      ]
+    },
+    {
+      "id": "kvcache_compression_storage_scheduling",
+      "name": "KV cache 压缩与存储调度",
+      "description": "关注大模型推理中的 KV cache 压缩、淘汰、分页、卸载、预取、层级存储、显存管理和长上下文推理效率优化。",
+      "keywords": [
+        "KV cache compression",
+        "KV cache eviction",
+        "KV cache scheduling",
+        "paged attention",
+        "attention cache",
+        "long context inference",
+        "memory offloading",
+        "GPU memory management",
+        "cache prefetching",
+        "LLM serving memory"
+      ],
+      "arxiv_categories": [
+        "cs.CL",
+        "cs.LG",
+        "cs.DC",
+        "cs.PF"
+      ]
+    }
+  ],
+  "papers": [
+    {
+      "id": "2605.28803v1",
+      "source": "arXiv",
+      "title": "Ω-QVLA: Robust Quantization for Vision-Language-Action Models via Composite Rotation and Per-step Scaling",
+      "authors": [
+        "Xinyu Wang",
+        "Mingze Li",
+        "Sicheng Lyu",
+        "Dongxiu Liu",
+        "Kaicheng Yang",
+        "Ziyu Zhao",
+        "Yufei Cui",
+        "Xiao-Wen Chang",
+        "Peng Lu"
+      ],
+      "summary": "Vision-Language-Action (VLA) models unify perception, reasoning, and control within a single policy, yet their multi-billion-parameter backbones and diffusion-based action heads make on-device deployment prohibitively expensive. Prior quantization efforts offer only partial solutions, compressing the LLM backbone while leaving the DiT action head at full precision, or resorting to mixed-precision schemes, driven by the belief that uniformly quantizing the action head is inherently unstable. We challenge this assumption with Omega-QVLA, the first training-free post-training quantization framework that compresses both the language backbone and the entire diffusion action head of a VLA model to a uniform W4A4 precision, eliminating the need for mixed-precision allocation. Omega-QVLA combines a composite SVD-Hadamard rotation that equalizes per-channel weight energy while diffusing residual activation outliers with per-step DiT activation scaling quantization that absorbs dynamic-range drift across denoising steps. On LIBERO, Omega-QVLA compresses Pi 0.5 and GR00T N1.5 to W4A4 with 98.0% and 87.8% task success rates, matching or exceeding their FP16 references of 97.1% and 87.0%, while reducing the static memory footprint by 71.3%. Real-world manipulation experiments further confirm smooth, accurate manipulation where prior methods fail. Code is available at https://github.com/UCMP13753/Omega-QVLA.",
+      "published": "2026-05-27T17:55:01Z",
+      "updated": "2026-05-27T17:55:01Z",
+      "paper_url": "http://arxiv.org/abs/2605.28803v1",
+      "pdf_url": "https://arxiv.org/pdf/2605.28803v1",
+      "categories": [
+        "cs.CV",
+        "cs.LG"
+      ],
+      "seed_topic": "llm_low_precision_quantization",
+      "matches": [
+        {
+          "topic_id": "llm_low_precision_quantization",
+          "topic_name": "大模型低精度量化",
+          "score": 0.853,
+          "level": "high",
+          "reason": "关键词命中：post-training quantization；arXiv 分类重合：cs.LG",
+          "keyword_hits": [
+            "post-training quantization"
+          ],
+          "llm_reason": "论文涉及大模型后训练量化，旨在实现低比特（W4A4）权重量化和激活量化，与我的研究方向“大模型低精度量化”高度吻合，特别是该方法在LLM和扩散模型上的均匀量化技术对研究有直接参考价值。"
+        },
+        {
+          "topic_id": "tensor_compute_unit_architecture",
+          "topic_name": "张量计算单元结构",
+          "score": 0.156,
+          "level": "low",
+          "reason": "arXiv 分类重合：cs.LG",
+          "keyword_hits": []
+        },
+        {
+          "topic_id": "kvcache_compression_storage_scheduling",
+          "topic_name": "KV cache 压缩与存储调度",
+          "score": 0.125,
+          "level": "low",
+          "reason": "arXiv 分类重合：cs.LG",
+          "keyword_hits": []
+        },
+        {
+          "topic_id": "llm_inference_cluster_communication",
+          "topic_name": "大模型推理集群通信优化",
+          "score": 0.094,
+          "level": "low",
+          "reason": "arXiv 分类重合：cs.LG",
+          "keyword_hits": []
+        }
+      ],
+      "best_match": {
+        "topic_id": "llm_low_precision_quantization",
+        "topic_name": "大模型低精度量化",
+        "score": 0.853,
+        "level": "high",
+        "reason": "关键词命中：post-training quantization；arXiv 分类重合：cs.LG",
+        "keyword_hits": [
+          "post-training quantization"
+        ],
+        "llm_reason": "论文涉及大模型后训练量化，旨在实现低比特（W4A4）权重量化和激活量化，与我的研究方向“大模型低精度量化”高度吻合，特别是该方法在LLM和扩散模型上的均匀量化技术对研究有直接参考价值。"
+      },
+      "chinese_summary": {
+        "problem": "现有VLA模型量化方法大多只压缩LLM主干而保持DiT动作头全精度，或采用混合精度，因为认为均匀量化动作头不稳定，导致无法实现模型整体的低比特均匀量化，阻碍端侧部署。",
+        "method": "提出训练免费的后训练量化方法Ω-QVLA，结合复合SVD-Hadamard旋转均衡每通道权重能量并扩散激活异常值，以及逐步DiT激活缩放量化技术吸收去噪步骤间的动态范围漂移，实现对LLM主干和扩散动作头的统一W4A4量化。",
+        "innovation": "1) 首次对VLA模型实现无需训练的W4A4统一量化，打破扩散动作头无法均匀量化的假设；2) 提出复合SVD-Hadamard旋转，同时解决权重量化困难和激活异常值问题；3) 设计逐步DiT激活缩放量化方法，无需混合精度即可处理去噪过程中激活的动态范围变化。",
+        "evidence": "在LIBERO基准上，Ω-QVLA将Pi 0.5和GR00T N1.5压缩至W4A4，任务成功率分别达98.0%和87.8%，匹配或超过FP16基准的97.1%和87.0%，静态内存占用减少71.3%；真实世界操作实验验证了平滑准确的操作，优于先前方法。",
+        "limitations": "摘要未提及除LIBERO外的泛化性，量化仅针对特定VLA模型架构，逐步缩放对更长去噪步骤的适应性需进一步验证，未讨论量化对推理延迟的影响。",
+        "why_relevant": "论文涉及大模型后训练量化，旨在实现低比特（W4A4）权重量化和激活量化，与我的研究方向“大模型低精度量化”高度吻合，特别是该方法在LLM和扩散模型上的均匀量化技术对研究有直接参考价值。"
+      },
+      "first_seen_at": "2026-05-28T09:35:48.728882+00:00",
+      "last_seen_at": "2026-05-28T13:18:49.361053+00:00",
+      "retained_from_previous_run": true
+    }
+  ],
+  "stats": {
+    "candidate_paper_count": 34,
+    "daily_candidate_paper_count": 0,
+    "conference_candidate_paper_count": 34,
+    "filtered_low_relevance_count": 0,
+    "days": 1,
+    "collection_mode": "lookback",
+    "collection_cutoff_iso": "2026-05-29T06:19:13.607095+00:00",
+    "max_per_topic": 10,
+    "max_new_papers": 50,
+    "max_new_conference_papers": 50,
+    "sources": [
+      {
+        "type": "arxiv",
+        "name": "arXiv",
+        "url": "",
+        "enabled": true,
+        "headers_env": "",
+        "bearer_token_env": ""
+      }
+    ],
+    "conference_sources": [
+      {
+        "id": "isca",
+        "name": "ISCA",
+        "group": "computer architecture",
+        "dblp_toc_patterns": [
+          "db/conf/isca/isca{year}.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      },
+      {
+        "id": "micro",
+        "name": "MICRO",
+        "group": "computer architecture",
+        "dblp_toc_patterns": [
+          "db/conf/micro/micro{year}.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      },
+      {
+        "id": "hpca",
+        "name": "HPCA",
+        "group": "computer architecture",
+        "dblp_toc_patterns": [
+          "db/conf/hpca/hpca{year}.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      },
+      {
+        "id": "asplos",
+        "name": "ASPLOS",
+        "group": "computer architecture",
+        "dblp_toc_patterns": [
+          "db/conf/asplos/asplos{year}-1.bht",
+          "db/conf/asplos/asplos{year}-2.bht",
+          "db/conf/asplos/asplos{year}-3.bht",
+          "db/conf/asplos/asplos{year}-4.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      },
+      {
+        "id": "mlsys",
+        "name": "MLSys",
+        "group": "systems for machine learning",
+        "dblp_toc_patterns": [
+          "db/conf/mlsys/mlsys{year}.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      },
+      {
+        "id": "eurosys",
+        "name": "EuroSys",
+        "group": "systems",
+        "dblp_toc_patterns": [
+          "db/conf/eurosys/eurosys{year}.bht"
+        ],
+        "years": [
+          2026,
+          2025
+        ],
+        "enabled": true
+      }
+    ],
+    "source_stats": {
+      "arXiv": {
+        "type": "arxiv",
+        "successful_fetches": 4,
+        "failed_fetches": 0
+      },
+      "ISCA": {
+        "type": "conference",
+        "successful_fetches": 1,
+        "failed_fetches": 0,
+        "skipped_cached_years": 1
+      },
+      "MICRO": {
+        "type": "conference",
+        "successful_fetches": 1,
+        "failed_fetches": 0,
+        "skipped_cached_years": 1
+      },
+      "HPCA": {
+        "type": "conference",
+        "successful_fetches": 0,
+        "failed_fetches": 0,
+        "skipped_cached_years": 2
+      },
+      "ASPLOS": {
+        "type": "conference",
+        "successful_fetches": 0,
+        "failed_fetches": 0,
+        "skipped_cached_years": 2
+      },
+      "MLSys": {
+        "type": "conference",
+        "successful_fetches": 1,
+        "failed_fetches": 0,
+        "skipped_cached_years": 1
+      },
+      "EuroSys": {
+        "type": "conference",
+        "successful_fetches": 0,
+        "failed_fetches": 0,
+        "skipped_cached_years": 2
+      }
+    },
+    "llm_enabled": true,
+    "llm_concurrency": 2,
+    "recent_history_days": 45,
+    "successful_fetches": 7,
+    "failed_fetches": 0,
+    "successful_conference_fetches": 3,
+    "failed_conference_fetches": 0,
+    "skipped_cached_conference_years": 9,
+    "conference_source_count": 6,
+    "cached_conference_candidate_count": 34,
+    "clear_cache": false,
+    "conference_arxiv_enrichment_attempted": 34,
+    "conference_arxiv_enrichment_succeeded": 15,
+    "conference_arxiv_enrichment_skipped": 0,
+    "conference_arxiv_enrichment_last_error": "",
+    "paper_count": 1,
+    "new_paper_count": 0,
+    "retained_paper_count": 1,
+    "retained_recent_low_count": 0,
+    "dropped_low_relevance_count": 0,
+    "max_stored_papers": 50,
+    "max_data_bytes": 8388608,
+    "data_bytes": 13757,
+    "storage_trimmed_count": 0,
+    "storage_trimmed_by_level": {
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "unknown": 0
+    }
+  }
+}
