@@ -57,20 +57,55 @@ Edit the JSON block below to change tracked topics. Keep the issue title as `Res
   },
   "topics": [
     {
-      "id": "mllm_visual_object_hallucination",
-      "name": "多模态视觉与对象幻觉",
-      "description": "关注 MLLM/LVLM 在图像理解、视觉问答和详细图像描述中的 visual hallucination、object hallucination、grounding failure、vision-language alignment failure，以及视觉证据不足或语言先验过强导致的非 grounded 输出。",
+      "id": "mllm_hallucination_factuality",
+      "name": "多模态大模型幻觉与事实性",
+      "description": "宽召回 MLLM/LVLM/VLM/audio-visual/video multimodal models 中的 hallucination、object hallucination、visual hallucination、cross-modal hallucination、factuality、faithfulness 和 grounding failure。",
       "keywords": [
-        "multimodal large language model hallucination",
+        "hallucination",
+        "multimodal hallucination",
         "MLLM hallucination",
         "LVLM hallucination",
+        "VLM hallucination",
         "visual hallucination",
         "object hallucination",
-        "vision-language hallucination",
-        "vision-language alignment",
-        "visual grounding",
-        "grounding failure",
-        "language prior"
+        "cross-modal hallucination",
+        "large vision-language model",
+        "multimodal factuality",
+        "visual grounding"
+      ],
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
+    },
+    {
+      "id": "mllm_hallucination_mitigation_alignment",
+      "name": "幻觉缓解、对齐与解码",
+      "description": "覆盖 decoding、attention/activation steering、DPO/RLHF/preference optimization、reward model、self-correction 和 post-training alignment。",
+      "keywords": [
+        "hallucination mitigation",
+        "mitigate hallucinations",
+        "visual evidence prompting",
+        "contrastive decoding",
+        "activation steering",
+        "attention intervention",
+        "self-correction hallucination",
+        "multimodal preference optimization",
+        "DPO hallucination"
+      ],
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
+    },
+    {
+      "id": "mllm_hallucination_detection_benchmark_attribution",
+      "name": "幻觉检测、基准与归因分析",
+      "description": "覆盖 hallucination detection、benchmark、evaluation dataset、token-level localization、visual evidence attribution、attention head analysis 和 causal/counterfactual analysis。",
+      "keywords": [
+        "hallucination detection",
+        "hallucination evaluation",
+        "hallucination benchmark",
+        "token-level localization",
+        "visual evidence",
+        "visual evidence attribution",
+        "attention head analysis",
+        "visual grounding benchmark",
+        "video hallucination"
       ],
       "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
     }

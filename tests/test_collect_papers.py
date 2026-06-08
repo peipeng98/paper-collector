@@ -18,7 +18,9 @@ from scripts.collect_papers import (
     default_conference_years,
     enrich_conference_paper_from_arxiv,
     fetch_arxiv,
+    find_google_scholar_serpapi_by_title,
     find_conference_abstract_by_title,
+    google_scholar_paper_from_item,
     is_relevant_enough,
     has_meaningful_summary,
     is_retryable_dblp_error,
@@ -33,6 +35,7 @@ from scripts.collect_papers import (
     parse_dblp_hits,
     parse_sources,
     should_retry_arxiv_error,
+    should_attempt_conference_abstract_enrichment,
     should_summarize_paper_with_llm,
     split_conference_payload,
     source_request_headers,
@@ -76,10 +79,17 @@ class RetentionTest(unittest.TestCase):
         os.environ.pop("MIN_TITLE_ONLY_SCORE", None)
         os.environ.pop("MIN_PAPER_SCORE", None)
         os.environ.pop("CONFERENCE_ABSTRACT_SOURCES", None)
+        os.environ.pop("CONFERENCE_ABSTRACT_SEARCH_RESULTS", None)
+        os.environ.pop("CONFERENCE_ENRICHMENT_TITLE_TERMS", None)
+        os.environ.pop("CONFERENCE_ENRICHMENT_NEAR_MISS_SCORE", None)
+        os.environ.pop("CONFERENCE_REQUIRED_CONTEXT_TERMS", None)
+        os.environ.pop("MAX_CONFERENCE_ABSTRACT_ENRICHMENTS", None)
         os.environ.pop("ENABLE_SEMANTIC_SCHOLAR", None)
         os.environ.pop("ARXIV_QUERY_MODE", None)
         os.environ.pop("MIN_DAILY_PAPERS", None)
         os.environ.pop("DAILY_BACKFILL_DAYS", None)
+        os.environ.pop("SERPAPI_API_KEY", None)
+        os.environ.pop("SERPAPI_KEY", None)
 
     def test_arxiv_retry_wait_uses_retry_after_header(self) -> None:
         os.environ["ARXIV_RETRY_MIN_SECONDS"] = "30"
@@ -447,6 +457,97 @@ class RetentionTest(unittest.TestCase):
         semantic_mock.assert_not_called()
         self.assertEqual(candidate, crossref_candidate)
 
+    def test_google_scholar_serpapi_title_finder(self) -> None:
+        os.environ["SERPAPI_API_KEY"] = "test-key"
+        data = {
+            "organic_results": [
+                {
+                    "title": "Visual Evidence Prompting Mitigates Hallucinations in Large Vision-Language Models",
+                    "link": "https://example.com/paper",
+                    "snippet": "Large Vision-Language Models suffer from hallucination, and visual evidence prompting mitigates hallucinations by grounding generations in fine-grained image evidence.",
+                    "publication_info": {"summary": "Wei Li et al. - ACL, 2025"},
+                    "resources": [{"file_format": "PDF", "link": "https://example.com/paper.pdf"}],
+                }
+            ]
+        }
+
+        with mock.patch("scripts.collect_papers.request_json", return_value=data) as request_mock:
+            candidate = find_google_scholar_serpapi_by_title(
+                "Visual Evidence Prompting Mitigates Hallucinations in Large Vision-Language Models"
+            )
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["source"], "Google Scholar")
+        self.assertEqual(candidate["published"], "2025-01-01T00:00:00+00:00")
+        self.assertEqual(candidate["pdf_url"], "https://example.com/paper.pdf")
+        self.assertIn("api_key=test-key", request_mock.call_args.args[0])
+
+    def test_google_scholar_item_parser_is_shared_with_source_fetch(self) -> None:
+        candidate = google_scholar_paper_from_item(
+            {
+                "title": "Token-Level Detective Reward Model for Large Vision Language Models",
+                "link": "https://example.com/tldr",
+                "snippet": "A token-level reward model helps multimodal models self-correct hallucinated generations.",
+                "publication_info": {"summary": "ICLR 2025"},
+            },
+            "Google Scholar",
+        )
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["categories"], ["Google Scholar"])
+        self.assertEqual(candidate["published"], "2025-01-01T00:00:00+00:00")
+
+    def test_conference_abstract_finder_supports_google_scholar_serpapi(self) -> None:
+        scholar_candidate = {
+            "id": "google-scholar:paper",
+            "source": "Google Scholar",
+            "title": "Token-Level Detective Reward Model for Large Vision Language Models",
+            "summary": "This paper provides token-level feedback for multimodal models and uses the signal for hallucination evaluation and self-correction. " * 2,
+            "paper_url": "https://example.com/tldr",
+            "pdf_url": "",
+            "authors": [],
+            "categories": ["Google Scholar"],
+        }
+        os.environ["CONFERENCE_ABSTRACT_SOURCES"] = "google_scholar_serpapi"
+
+        with mock.patch("scripts.collect_papers.find_google_scholar_serpapi_by_title", return_value=scholar_candidate):
+            candidate = find_conference_abstract_by_title(
+                "Token-Level Detective Reward Model for Large Vision Language Models"
+            )
+
+        self.assertEqual(candidate, scholar_candidate)
+
+    def test_conference_enrichment_prefilter_uses_title_terms_and_near_miss_score(self) -> None:
+        paper_with_title_signal = {
+            "source_type": "conference",
+            "title": "Token-Level Detective Reward Model for Large Vision Language Models",
+            "summary": "DBLP 题录：ICLR 2025 会议论文。",
+        }
+        generic_paper = {
+            "source_type": "conference",
+            "title": "A Generic Optimization Method",
+            "summary": "DBLP 题录：ICML 2025 会议论文。",
+        }
+
+        self.assertTrue(
+            should_attempt_conference_abstract_enrichment(
+                paper_with_title_signal,
+                {"score": 0.0, "keyword_hits": []},
+            )
+        )
+        self.assertFalse(
+            should_attempt_conference_abstract_enrichment(
+                generic_paper,
+                {"score": 0.02, "keyword_hits": []},
+            )
+        )
+        self.assertTrue(
+            should_attempt_conference_abstract_enrichment(
+                generic_paper,
+                {"score": 0.12, "keyword_hits": []},
+            )
+        )
+
     def test_relevance_filter_rejects_weak_title_only_and_conference_matches(self) -> None:
         weak_title = {"title": "A Generic Optimization Study", "summary": ""}
         weak_conference = {
@@ -463,6 +564,32 @@ class RetentionTest(unittest.TestCase):
         self.assertFalse(is_relevant_enough(weak_title, {"score": 0.03, "keyword_hits": []}))
         self.assertFalse(is_relevant_enough(weak_conference, {"score": 0.05, "keyword_hits": []}))
         self.assertTrue(is_relevant_enough(keyword_match, {"score": 0.04, "keyword_hits": ["KV cache compression"]}))
+
+    def test_relevance_filter_can_require_multimodal_context_for_conferences(self) -> None:
+        os.environ["CONFERENCE_REQUIRED_CONTEXT_TERMS"] = "vision-language,visual,multimodal,LVLM,MLLM"
+        generic_hallucination = {
+            "title": "Faithfulness in Rationale Generation",
+            "summary": "This work studies faithfulness and hallucination in text-only rationale generation. " * 2,
+            "source_type": "conference",
+        }
+        multimodal_hallucination = {
+            "title": "Object Hallucination Mitigation in Large Vision-Language Models",
+            "summary": "This work studies object hallucination and visual grounding in LVLMs. " * 2,
+            "source_type": "conference",
+        }
+
+        self.assertFalse(
+            is_relevant_enough(
+                generic_hallucination,
+                {"score": 0.5, "keyword_hits": ["faithfulness"]},
+            )
+        )
+        self.assertTrue(
+            is_relevant_enough(
+                multimodal_hallucination,
+                {"score": 0.1, "keyword_hits": ["object hallucination"]},
+            )
+        )
 
     def test_llm_summary_skips_conference_and_title_only_by_default(self) -> None:
         self.assertFalse(should_summarize_paper_with_llm({"source_type": "conference", "summary": "DBLP 题录。"}))
@@ -740,6 +867,96 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(papers[0]["title"], "Fast ACS: Low-Latency File-Based Ordered Message Delivery at Scale")
         self.assertEqual(papers[0]["authors"], ["Sushant Kumar Gupta", "Anil Raghunath Iyer"])
         self.assertEqual(papers[0]["pdf_url"], "https://www.usenix.org/conference/atc25/presentation/gupta")
+
+    def test_collect_enriches_conference_candidates_before_relevance_filtering(self) -> None:
+        config = {
+            "sources": [{"type": "arxiv", "name": "arXiv", "enabled": False}],
+            "conference_sources": {
+                "enabled": True,
+                "years": [2025],
+                "venues": [
+                    {
+                        "id": "iclr",
+                        "name": "ICLR",
+                        "group": "machine learning",
+                        "dblp_toc_patterns": ["db/conf/iclr/iclr{year}.bht"],
+                    }
+                ],
+            },
+            "topics": [
+                {
+                    "id": "mllm_eval",
+                    "name": "MLLM Hallucination Evaluation",
+                    "description": "hallucination evaluation and visual grounding for large vision language models",
+                    "keywords": ["hallucination evaluation", "visual grounding"],
+                    "arxiv_categories": ["cs.CV"],
+                }
+            ],
+        }
+        conference_paper = {
+            "id": "dblp:conf/iclr/Example25",
+            "source": "DBLP · ICLR",
+            "source_type": "conference",
+            "title": "Token-Level Detective Reward Model for Large Vision Language Models",
+            "authors": ["Ada Example"],
+            "summary": "DBLP 题录：ICLR 2025 会议论文。",
+            "published": "2025-01-01T00:00:00+00:00",
+            "updated": "2025-01-01T00:00:00+00:00",
+            "paper_url": "https://dblp.org/rec/conf/iclr/Example25",
+            "pdf_url": "",
+            "categories": ["ICLR", "machine learning", "2025"],
+            "conference": {"id": "iclr", "name": "ICLR", "year": 2025},
+        }
+        abstract_candidate = {
+            "id": "openalex:example",
+            "source": "OpenAlex",
+            "title": "Token-Level Detective Reward Model for Large Vision Language Models",
+            "summary": "This paper studies hallucination evaluation for large vision language models and uses token-level feedback to improve visual grounding. " * 2,
+            "published": "2025-01-01T00:00:00+00:00",
+            "paper_url": "https://example.com/tldr",
+            "pdf_url": "",
+            "authors": ["Ada Example"],
+            "categories": ["cs.CV"],
+        }
+
+        os.environ["MIN_CONFERENCE_SCORE"] = "0.9"
+        os.environ["MAX_CONFERENCE_ABSTRACT_ENRICHMENTS"] = "5"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            config_path = tmp_path / "interests.json"
+            output_path = tmp_path / "papers.json"
+            conference_output_path = tmp_path / "conference.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            with (
+                mock.patch("scripts.collect_papers.fetch_dblp_conference", return_value=[conference_paper]),
+                mock.patch("scripts.collect_papers.find_conference_abstract_by_title", return_value=abstract_candidate),
+                mock.patch("scripts.collect_papers.time.sleep"),
+            ):
+                collect(
+                    config_path,
+                    output_path,
+                    conference_output_path,
+                    days=7,
+                    max_per_topic=1,
+                    max_summaries=0,
+                    max_new_papers=10,
+                    max_stored_papers=10,
+                    max_new_conference_papers=10,
+                    max_stored_conference_papers=10,
+                    max_data_bytes=0,
+                    incremental_since_last_run=False,
+                    recent_history_days=45,
+                    clear_cache=True,
+                )
+
+            conference_payload = json.loads(conference_output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(conference_payload["stats"]["conference_abstract_enrichment_attempted"], 1)
+        self.assertEqual(conference_payload["stats"]["conference_abstract_enrichment_succeeded"], 1)
+        self.assertEqual(conference_payload["stats"]["conference_candidate_paper_count"], 1)
+        self.assertEqual(conference_payload["papers"][0]["abstract_source"], "OpenAlex")
+        self.assertEqual(conference_payload["papers"][0]["best_match"]["keyword_hits"], ["hallucination evaluation", "visual grounding"])
 
     def test_collect_backfills_recent_arxiv_when_daily_window_is_empty(self) -> None:
         now = dt.datetime.now(dt.timezone.utc)

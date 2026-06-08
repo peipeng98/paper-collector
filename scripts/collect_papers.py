@@ -44,6 +44,42 @@ TRANSIENT_HTTP_CODES = {429, 500, 502, 503, 504}
 DBLP_TRANSIENT_HTTP_CODES = {429, 502, 503, 504}
 DEFAULT_SOURCE_TYPES = ["arxiv", "openalex", "crossref"]
 FEED_NAMESPACES = {"atom": "http://www.w3.org/2005/Atom"}
+DEFAULT_CONFERENCE_ENRICHMENT_TERMS = [
+    "hallucination",
+    "hallucinations",
+    "hallucinated",
+    "factuality",
+    "faithfulness",
+    "grounding",
+    "grounded",
+    "visual evidence",
+    "visual information",
+    "visual signal",
+    "visual support",
+    "object hallucination",
+    "large vision-language",
+    "large vision language",
+    "vision-language model",
+    "vision language model",
+    "LVLM",
+    "mllm",
+    "multimodal large language",
+    "reward model",
+    "token-level",
+    "token level",
+    "attribution",
+    "attention intervention",
+    "causal",
+    "counterfactual",
+    "intervention",
+    "preference optimization",
+    "direct preference",
+    "dpo",
+    "decoding",
+    "self-correct",
+    "verification",
+    "caption faithfulness",
+]
 
 
 @dataclass(frozen=True)
@@ -739,6 +775,58 @@ def find_crossref_by_title(title: str, max_results: int = 5) -> dict[str, Any] |
     return None
 
 
+def google_scholar_serpapi_key() -> str:
+    return os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY") or ""
+
+
+def google_scholar_paper_from_item(item: dict[str, Any], source_name: str = "Google Scholar") -> dict[str, Any] | None:
+    title = normalize_space(str(item.get("title") or ""))
+    paper_url = str(item.get("link") or "")
+    if not title or not paper_url:
+        return None
+    publication = item.get("publication_info") or {}
+    publication_summary = str(publication.get("summary") or "")
+    year_match = re.search(r"\b(19|20)\d{2}\b", publication_summary)
+    resources = item.get("resources") or []
+    pdf_url = next(
+        (str(resource.get("link")) for resource in resources if str(resource.get("file_format", "")).upper() == "PDF"),
+        "",
+    )
+    return {
+        "id": f"google-scholar:{slugify(paper_url or title)}",
+        "source": source_name,
+        "title": title,
+        "authors": [],
+        "summary": normalize_space(" ".join([str(item.get("snippet") or ""), publication_summary])),
+        "published": date_to_iso(year_match.group(0) if year_match else ""),
+        "updated": "",
+        "paper_url": paper_url,
+        "pdf_url": pdf_url,
+        "categories": ["Google Scholar"],
+    }
+
+
+def find_google_scholar_serpapi_by_title(title: str, max_results: int = 5) -> dict[str, Any] | None:
+    api_key = google_scholar_serpapi_key()
+    if not api_key:
+        return None
+    params = {
+        "engine": "google_scholar",
+        "q": title,
+        "num": str(min(max(1, max_results), 20)),
+        "api_key": api_key,
+    }
+    data = request_json(
+        f"{SERPAPI_SEARCH_URL}?{urllib.parse.urlencode(params)}",
+        timeout=float(os.getenv("SERPAPI_TIMEOUT_SECONDS", "90")),
+    )
+    for item in data.get("organic_results", []):
+        candidate = google_scholar_paper_from_item(item)
+        if candidate and titles_match(title, candidate["title"]) and has_meaningful_summary(candidate):
+            return candidate
+    return None
+
+
 def find_conference_abstract_by_title(title: str, max_results: int = 5) -> dict[str, Any] | None:
     finders = {
         "arxiv": find_arxiv_by_title,
@@ -746,6 +834,10 @@ def find_conference_abstract_by_title(title: str, max_results: int = 5) -> dict[
         "semanticscholar": find_semantic_scholar_by_title,
         "openalex": find_openalex_by_title,
         "crossref": find_crossref_by_title,
+        "google_scholar": find_google_scholar_serpapi_by_title,
+        "google_scholar_serpapi": find_google_scholar_serpapi_by_title,
+        "googlescholar": find_google_scholar_serpapi_by_title,
+        "serpapi": find_google_scholar_serpapi_by_title,
     }
     for source_type in conference_abstract_sources():
         finder = finders.get(source_type.strip().lower())
@@ -1040,20 +1132,20 @@ def fetch_dblp_conference(source: ConferenceSource, max_results: int) -> list[di
             query = f"toc:{toc_key}:"
             request_count += 1
             try:
-                data = fetch_dblp_json(query, max_results)
+                html_papers = fetch_dblp_html_toc(toc_key, source, year)
             except Exception as exc:
                 try:
-                    fallback_papers = fetch_dblp_html_toc(toc_key, source, year)
-                except Exception as fallback_exc:
-                    errors.append(fallback_exc)
+                    data = fetch_dblp_json(query, max_results)
+                except Exception as api_exc:
+                    errors.append(api_exc)
                     print(
-                        f"Warning: DBLP TOC request failed for {source.name} {year} pattern {pattern_index + 1}: {exc}; HTML fallback failed: {fallback_exc}",
+                        f"Warning: DBLP HTML TOC request failed for {source.name} {year} pattern {pattern_index + 1}: {exc}; API fallback failed: {api_exc}",
                         file=sys.stderr,
                     )
                     continue
-                papers.extend(fallback_papers[:max_results])
+                papers.extend(parse_dblp_hits(data, source, year, toc_key))
                 continue
-            papers.extend(parse_dblp_hits(data, source, year, toc_key))
+            papers.extend(html_papers[:max_results])
     if not papers and errors:
         raise errors[-1]
     return dedupe_papers(papers)
@@ -1204,7 +1296,7 @@ def fetch_semantic_scholar(topic: Topic, max_results: int, source: SourceConfig)
 
 
 def fetch_google_scholar_serpapi(topic: Topic, max_results: int, source: SourceConfig) -> list[dict[str, Any]]:
-    api_key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
+    api_key = google_scholar_serpapi_key()
     if not api_key:
         raise RuntimeError("SERPAPI_API_KEY is required for google_scholar_serpapi source")
     params = {
@@ -1219,30 +1311,11 @@ def fetch_google_scholar_serpapi(topic: Topic, max_results: int, source: SourceC
     )
     papers = []
     for item in data.get("organic_results", []):
-        title = normalize_space(str(item.get("title") or ""))
-        paper_url = str(item.get("link") or "")
-        if not title or not paper_url:
+        candidate = google_scholar_paper_from_item(item, source.name)
+        if not candidate:
             continue
-        publication = item.get("publication_info") or {}
-        publication_summary = str(publication.get("summary") or "")
-        year_match = re.search(r"\b(19|20)\d{2}\b", publication_summary)
-        resources = item.get("resources") or []
-        pdf_url = next((str(resource.get("link")) for resource in resources if str(resource.get("file_format", "")).upper() == "PDF"), "")
-        papers.append(
-            {
-                "id": f"google-scholar:{slugify(paper_url or title)}",
-                "source": source.name,
-                "title": title,
-                "authors": [],
-                "summary": normalize_space(" ".join([str(item.get("snippet") or ""), publication_summary])),
-                "published": date_to_iso(year_match.group(0) if year_match else ""),
-                "updated": "",
-                "paper_url": paper_url,
-                "pdf_url": pdf_url,
-                "categories": ["Google Scholar"],
-                "seed_topic": topic.id,
-            }
-        )
+        candidate["seed_topic"] = topic.id
+        papers.append(candidate)
     return papers
 
 
@@ -1474,7 +1547,25 @@ def has_meaningful_summary(paper: dict[str, Any], min_chars: int = 80) -> bool:
     return len(summary) >= min_chars
 
 
+def paper_text_contains_any_term(paper: dict[str, Any], terms: list[str]) -> bool:
+    haystack = normalize_space(f"{paper.get('title', '')} {paper.get('summary', '')}").lower()
+    return any(normalize_space(term).lower() in haystack for term in terms if normalize_space(term))
+
+
+def conference_required_context_terms() -> list[str]:
+    return env_list("CONFERENCE_REQUIRED_CONTEXT_TERMS", [])
+
+
+def has_required_conference_context(paper: dict[str, Any]) -> bool:
+    required_terms = conference_required_context_terms()
+    if not required_terms:
+        return True
+    return paper_text_contains_any_term(paper, required_terms)
+
+
 def is_relevant_enough(paper: dict[str, Any], best_match: dict[str, Any]) -> bool:
+    if paper.get("source_type") == "conference" and not has_required_conference_context(paper):
+        return False
     if best_match.get("keyword_hits"):
         return True
 
@@ -1484,6 +1575,45 @@ def is_relevant_enough(paper: dict[str, Any], best_match: dict[str, Any]) -> boo
     if not has_meaningful_summary(paper):
         return score >= env_float("MIN_TITLE_ONLY_SCORE", 0.18)
     return score >= env_float("MIN_PAPER_SCORE", 0.08)
+
+
+def conference_enrichment_terms() -> list[str]:
+    return env_list("CONFERENCE_ENRICHMENT_TITLE_TERMS", DEFAULT_CONFERENCE_ENRICHMENT_TERMS)
+
+
+def conference_enrichment_title_hits(paper: dict[str, Any]) -> list[str]:
+    haystack = normalize_space(f"{paper.get('title', '')} {paper.get('summary', '')}").lower()
+    hits = []
+    for term in conference_enrichment_terms():
+        normalized = normalize_space(term).lower()
+        if normalized and normalized in haystack:
+            hits.append(term)
+    return hits
+
+
+def should_attempt_conference_abstract_enrichment(
+    paper: dict[str, Any],
+    best_match: dict[str, Any] | None = None,
+) -> bool:
+    if paper.get("source_type") != "conference" or has_meaningful_summary(paper):
+        return False
+    if best_match and best_match.get("keyword_hits"):
+        return True
+    if conference_enrichment_title_hits(paper):
+        return True
+    score = float((best_match or {}).get("score") or 0.0)
+    return score >= env_float("CONFERENCE_ENRICHMENT_NEAR_MISS_SCORE", 0.10)
+
+
+def conference_enrichment_priority(paper: dict[str, Any], best_match: dict[str, Any]) -> tuple[int, float, int, str]:
+    hits = conference_enrichment_title_hits(paper)
+    hallucination_hit = any("hallucinat" in hit.lower() for hit in hits)
+    return (
+        1 if best_match.get("keyword_hits") or hallucination_hit else 0,
+        float(best_match.get("score") or 0.0),
+        len(hits),
+        str(paper.get("title") or ""),
+    )
 
 
 def enrich_conference_papers_from_arxiv(papers: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1498,7 +1628,13 @@ def enrich_conference_papers_from_arxiv(papers: list[dict[str, Any]]) -> dict[st
     )
     abstract_sources = conference_abstract_sources()
     arxiv_enrichment_enabled = "arxiv" in {source.strip().lower() for source in abstract_sources}
+    eligible_count = sum(
+        1
+        for paper in papers
+        if paper.get("source_type") == "conference" and not has_meaningful_summary(paper)
+    )
     stats: dict[str, Any] = {
+        "conference_abstract_enrichment_candidate_count": eligible_count,
         "conference_abstract_enrichment_attempted": 0,
         "conference_abstract_enrichment_succeeded": 0,
         "conference_abstract_enrichment_skipped": 0,
@@ -2061,6 +2197,8 @@ def collect(
     daily_outside_cutoff_count = 0
     backfill_days = max(days, env_int("DAILY_BACKFILL_DAYS", 14))
     daily_backfill_cutoff = now - dt.timedelta(days=max(0, backfill_days))
+    candidate_records: list[dict[str, Any]] = []
+    conference_enrichment_candidates: list[tuple[tuple[int, float, int, str], dict[str, Any]]] = []
     for paper in dedupe_papers(all_candidates):
         is_conference_paper = paper.get("source_type") == "conference"
         if not is_conference_paper:
@@ -2080,6 +2218,36 @@ def collect(
         matches = [score_paper(topic, paper) for topic in topics]
         matches.sort(key=lambda item: item["score"], reverse=True)
         best_match = matches[0]
+        candidate_records.append(
+            {
+                "paper": paper,
+                "matches": matches,
+                "best_match": best_match,
+                "in_backfill_window": in_backfill_window,
+            }
+        )
+        if should_attempt_conference_abstract_enrichment(paper, best_match):
+            conference_enrichment_candidates.append((conference_enrichment_priority(paper, best_match), paper))
+
+    conference_enrichment_candidates.sort(key=lambda item: item[0], reverse=True)
+    conference_enrichment_stats = enrich_conference_papers_from_arxiv(
+        [paper for _, paper in conference_enrichment_candidates]
+    )
+    if conference_enrichment_stats["conference_abstract_enrichment_succeeded"]:
+        for record in candidate_records:
+            paper = record["paper"]
+            if paper.get("source_type") != "conference":
+                continue
+            matches = [score_paper(topic, paper) for topic in topics]
+            matches.sort(key=lambda item: item["score"], reverse=True)
+            record["matches"] = matches
+            record["best_match"] = matches[0]
+
+    for record in candidate_records:
+        paper = record["paper"]
+        in_backfill_window = bool(record["in_backfill_window"])
+        matches = record["matches"]
+        best_match = record["best_match"]
         if not is_relevant_enough(paper, best_match):
             filtered_low_relevance += 1
             continue
@@ -2119,14 +2287,6 @@ def collect(
         daily_recent_papers = daily_recent_papers[:max_new_papers]
     if max_new_conference_papers > 0:
         conference_recent_papers = conference_recent_papers[:max_new_conference_papers]
-    conference_enrichment_stats = enrich_conference_papers_from_arxiv(conference_recent_papers)
-    if conference_enrichment_stats["conference_arxiv_enrichment_succeeded"]:
-        for paper in conference_recent_papers:
-            matches = [score_paper(topic, paper) for topic in topics]
-            matches.sort(key=lambda item: item["score"], reverse=True)
-            paper["matches"] = matches
-            paper["best_match"] = matches[0]
-        conference_recent_papers.sort(key=lambda p: (p["best_match"]["score"], p.get("published", "")), reverse=True)
     recent_papers = sorted(
         [*daily_recent_papers, *conference_recent_papers],
         key=lambda p: (p["best_match"]["score"], paper_activity_datetime(p)),
