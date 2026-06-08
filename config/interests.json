@@ -1,6 +1,6 @@
 {
   "sources": [
-    { "type": "arxiv", "name": "arXiv", "enabled": false }
+    { "type": "arxiv", "name": "arXiv", "enabled": true }
   ],
   "conference_sources": {
     "enabled": true,

@@ -11,7 +11,7 @@ Edit the JSON block below to change tracked topics. Keep the issue title as `Res
 ```json
 {
   "sources": [
-    { "type": "arxiv", "name": "arXiv", "enabled": false }
+    { "type": "arxiv", "name": "arXiv", "enabled": true }
   ],
   "conference_sources": {
     "enabled": true,

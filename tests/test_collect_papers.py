@@ -9,6 +9,7 @@ from unittest import mock
 
 from scripts.collect_papers import (
     ConferenceSource,
+    apply_daily_affiliation_quality,
     arxiv_query_for_topic,
     arxiv_retry_wait_seconds,
     cached_conference_years,
@@ -16,6 +17,7 @@ from scripts.collect_papers import (
     collection_cutoff,
     conference_abstract_sources,
     default_conference_years,
+    effective_daily_paper_limit,
     enrich_conference_paper_from_arxiv,
     fetch_arxiv,
     find_google_scholar_serpapi_by_title,
@@ -28,6 +30,7 @@ from scripts.collect_papers import (
     merge_with_retained_papers,
     merge_config,
     openalex_abstract_text,
+    openalex_institutions_from_work,
     openalex_paper_from_work,
     parse_arxiv_entries,
     parse_conference_sources,
@@ -36,6 +39,7 @@ from scripts.collect_papers import (
     parse_sources,
     should_retry_arxiv_error,
     should_attempt_conference_abstract_enrichment,
+    trusted_affiliation_hits,
     should_summarize_paper_with_llm,
     split_conference_payload,
     source_request_headers,
@@ -90,6 +94,17 @@ class RetentionTest(unittest.TestCase):
         os.environ.pop("DAILY_BACKFILL_DAYS", None)
         os.environ.pop("SERPAPI_API_KEY", None)
         os.environ.pop("SERPAPI_KEY", None)
+        os.environ.pop("DAILY_PAPER_LIMIT_MODE", None)
+        os.environ.pop("MAX_DAILY_PAPERS", None)
+        os.environ.pop("MAX_WEEKLY_PAPERS", None)
+        os.environ.pop("MAX_MONTHLY_PAPERS", None)
+        os.environ.pop("DAILY_ENRICH_OPENALEX_METADATA", None)
+        os.environ.pop("MAX_DAILY_METADATA_ENRICHMENTS", None)
+        os.environ.pop("DAILY_METADATA_ENRICHMENT_DELAY_SECONDS", None)
+        os.environ.pop("DAILY_METADATA_ENRICHMENT_MIN_SCORE", None)
+        os.environ.pop("DAILY_AFFILIATION_MODE", None)
+        os.environ.pop("DAILY_TRUSTED_AFFILIATION_BONUS", None)
+        os.environ.pop("TRUSTED_AFFILIATION_TERMS", None)
 
     def test_arxiv_retry_wait_uses_retry_after_header(self) -> None:
         os.environ["ARXIV_RETRY_MIN_SECONDS"] = "30"
@@ -407,6 +422,62 @@ class RetentionTest(unittest.TestCase):
         self.assertIsNotNone(candidate)
         self.assertEqual(candidate["source"], "OpenAlex")
         self.assertEqual(candidate["summary"], "This paper studies tensor compute")
+
+    def test_openalex_candidate_includes_institutions(self) -> None:
+        work = {
+            "id": "https://openalex.org/W2",
+            "title": "Reliable Multimodal Hallucination Detection",
+            "abstract_inverted_index": {"Reliable": [0], "multimodal": [1], "hallucination": [2]},
+            "publication_year": 2026,
+            "authorships": [
+                {
+                    "author": {"display_name": "Ada Example"},
+                    "institutions": [{"display_name": "Stanford University"}],
+                    "raw_affiliation_strings": ["OpenAI, San Francisco, USA"],
+                }
+            ],
+            "concepts": [],
+        }
+
+        self.assertEqual(openalex_institutions_from_work(work), ["Stanford University", "OpenAI, San Francisco, USA"])
+        candidate = openalex_paper_from_work(work)
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate["institutions"], ["Stanford University", "OpenAI, San Francisco, USA"])
+
+    def test_daily_affiliation_quality_boosts_trusted_institutions(self) -> None:
+        os.environ["DAILY_AFFILIATION_MODE"] = "prefer"
+        os.environ["DAILY_TRUSTED_AFFILIATION_BONUS"] = "0.1"
+        paper = {"institutions": ["Stanford University", "Small Lab"]}
+        best_match = {"score": 0.35, "level": "low", "reason": "关键词命中：hallucination"}
+
+        apply_daily_affiliation_quality(paper, best_match)
+
+        self.assertEqual(trusted_affiliation_hits(paper), ["Stanford"])
+        self.assertEqual(paper["affiliation_quality"], "trusted")
+        self.assertEqual(best_match["score"], 0.45)
+        self.assertEqual(best_match["level"], "medium")
+        self.assertIn("机构命中：Stanford", best_match["reason"])
+
+    def test_daily_affiliation_quality_can_require_trusted_institutions(self) -> None:
+        os.environ["DAILY_AFFILIATION_MODE"] = "require"
+        paper = {"institutions": ["Small Lab"]}
+        best_match = {"score": 0.9, "level": "high", "reason": "关键词命中：hallucination"}
+
+        apply_daily_affiliation_quality(paper, best_match)
+
+        self.assertTrue(paper["daily_affiliation_rejected"])
+        self.assertFalse(is_relevant_enough(paper, best_match))
+
+    def test_effective_daily_paper_limit_can_follow_window(self) -> None:
+        os.environ["DAILY_PAPER_LIMIT_MODE"] = "auto"
+        os.environ["MAX_DAILY_PAPERS"] = "4"
+        os.environ["MAX_WEEKLY_PAPERS"] = "12"
+        os.environ["MAX_MONTHLY_PAPERS"] = "30"
+
+        self.assertEqual(effective_daily_paper_limit(1, 50), 4)
+        self.assertEqual(effective_daily_paper_limit(7, 50), 12)
+        self.assertEqual(effective_daily_paper_limit(30, 50), 30)
 
     def test_conference_abstract_finder_tries_sources_after_arxiv_failure(self) -> None:
         semantic_candidate = {
@@ -957,6 +1028,84 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(conference_payload["stats"]["conference_candidate_paper_count"], 1)
         self.assertEqual(conference_payload["papers"][0]["abstract_source"], "OpenAlex")
         self.assertEqual(conference_payload["papers"][0]["best_match"]["keyword_hits"], ["hallucination evaluation", "visual grounding"])
+
+    def test_collect_enriches_daily_arxiv_with_trusted_institutions(self) -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        config = {
+            "sources": [{"type": "arxiv", "name": "arXiv"}],
+            "conference_sources": {"enabled": False},
+            "topics": [
+                {
+                    "id": "mllm",
+                    "name": "MLLM Hallucination",
+                    "description": "multimodal large language model hallucination",
+                    "keywords": ["multimodal hallucination", "visual hallucination"],
+                    "arxiv_categories": ["cs.CV"],
+                }
+            ],
+        }
+        fetched_paper = {
+            "id": "2601.00002v1",
+            "source": "arXiv",
+            "title": "Reliable Visual Hallucination Detection for Multimodal Models",
+            "authors": ["Ada Example"],
+            "summary": "This paper studies multimodal hallucination and visual hallucination detection in large vision-language models. " * 2,
+            "published": now.isoformat(),
+            "updated": now.isoformat(),
+            "paper_url": "https://arxiv.org/abs/2601.00002v1",
+            "pdf_url": "https://arxiv.org/pdf/2601.00002v1",
+            "categories": ["cs.CV"],
+        }
+        openalex_candidate = {
+            "id": "openalex:W2",
+            "source": "OpenAlex",
+            "title": fetched_paper["title"],
+            "summary": fetched_paper["summary"],
+            "published": now.isoformat(),
+            "paper_url": "https://openalex.org/W2",
+            "pdf_url": "",
+            "authors": ["Ada Example"],
+            "categories": ["cs.CV"],
+            "institutions": ["Stanford University"],
+        }
+
+        os.environ["DAILY_ENRICH_OPENALEX_METADATA"] = "true"
+        os.environ["DAILY_METADATA_ENRICHMENT_DELAY_SECONDS"] = "0"
+        os.environ["DAILY_AFFILIATION_MODE"] = "prefer"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            config_path = tmp_path / "interests.json"
+            output_path = tmp_path / "papers.json"
+            conference_output_path = tmp_path / "conference.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            with (
+                mock.patch("scripts.collect_papers.fetch_source_topic", return_value=[fetched_paper]),
+                mock.patch("scripts.collect_papers.find_openalex_by_title", return_value=openalex_candidate),
+                mock.patch("scripts.collect_papers.time.sleep"),
+            ):
+                payload = collect(
+                    config_path,
+                    output_path,
+                    conference_output_path,
+                    days=7,
+                    max_per_topic=1,
+                    max_summaries=0,
+                    max_new_papers=10,
+                    max_stored_papers=10,
+                    max_new_conference_papers=10,
+                    max_stored_conference_papers=10,
+                    max_data_bytes=0,
+                    incremental_since_last_run=False,
+                    recent_history_days=45,
+                    clear_cache=True,
+                )
+
+        self.assertEqual(payload["stats"]["daily_metadata_enrichment_attempted"], 1)
+        self.assertEqual(payload["stats"]["daily_metadata_enrichment_succeeded"], 1)
+        self.assertEqual(payload["stats"]["daily_trusted_affiliation_count"], 1)
+        self.assertEqual(payload["papers"][0]["institutions"], ["Stanford University"])
+        self.assertEqual(payload["papers"][0]["trusted_affiliation_hits"], ["Stanford"])
 
     def test_collect_backfills_recent_arxiv_when_daily_window_is_empty(self) -> None:
         now = dt.datetime.now(dt.timezone.utc)

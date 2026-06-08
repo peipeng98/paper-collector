@@ -202,6 +202,9 @@ function renderPaper(paper) {
 
   setText(node, ".paper-date", `发布 ${formatDate(paper.published)} · 收录 ${formatDate(collectionTime(paper))}`);
   setText(node, ".paper-source", paper.source || "paper");
+  const institutionHits = paper.trusted_affiliation_hits || [];
+  const institutions = institutionHits.length ? institutionHits : (paper.institutions || []);
+  setText(node, ".paper-institutions", institutions.length ? `机构 ${institutions.slice(0, 4).join(" / ")}` : "");
   setText(node, ".paper-title", paper.title);
   setText(node, ".paper-authors", (paper.authors || []).slice(0, 8).join(", "));
   setText(node, ".summary-problem", summary.problem);

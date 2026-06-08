@@ -80,6 +80,53 @@ DEFAULT_CONFERENCE_ENRICHMENT_TERMS = [
     "verification",
     "caption faithfulness",
 ]
+DEFAULT_TRUSTED_AFFILIATION_TERMS = [
+    "OpenAI",
+    "Google",
+    "Google DeepMind",
+    "DeepMind",
+    "Microsoft",
+    "Microsoft Research",
+    "Meta",
+    "FAIR",
+    "Apple",
+    "Amazon",
+    "NVIDIA",
+    "Adobe",
+    "IBM Research",
+    "Salesforce Research",
+    "Allen Institute",
+    "Stanford",
+    "MIT",
+    "Massachusetts Institute of Technology",
+    "Carnegie Mellon",
+    "UC Berkeley",
+    "University of California, Berkeley",
+    "Princeton",
+    "Harvard",
+    "Yale",
+    "Cornell",
+    "Columbia University",
+    "University of Washington",
+    "University of Illinois Urbana-Champaign",
+    "University of Toronto",
+    "Oxford",
+    "Cambridge",
+    "ETH Zurich",
+    "EPFL",
+    "Max Planck",
+    "Mila",
+    "INRIA",
+    "Tsinghua",
+    "Peking University",
+    "Shanghai Jiao Tong",
+    "Zhejiang University",
+    "University of Science and Technology of China",
+    "Chinese University of Hong Kong",
+    "HKUST",
+    "National University of Singapore",
+    "Nanyang Technological University",
+]
 
 
 @dataclass(frozen=True)
@@ -672,42 +719,6 @@ def find_semantic_scholar_by_title(title: str, max_results: int = 5) -> dict[str
     return None
 
 
-def openalex_paper_from_work(work: dict[str, Any], source_name: str = "OpenAlex") -> dict[str, Any] | None:
-    title = normalize_space(str(work.get("title") or ""))
-    work_id = str(work.get("id") or work.get("doi") or title)
-    if not title or not work_id:
-        return None
-    locations = work.get("locations") or []
-    primary = work.get("primary_location") or {}
-    best_oa = work.get("best_oa_location") or {}
-    pdf_url = (
-        primary.get("pdf_url")
-        or best_oa.get("pdf_url")
-        or next((location.get("pdf_url") for location in locations if location.get("pdf_url")), "")
-    )
-    authors = [
-        str((authorship.get("author") or {}).get("display_name") or "")
-        for authorship in work.get("authorships", [])
-    ]
-    concepts = [
-        str(concept.get("display_name") or "")
-        for concept in work.get("concepts", [])[:8]
-        if concept.get("display_name")
-    ]
-    return {
-        "id": f"openalex:{work_id.rsplit('/', 1)[-1]}",
-        "source": source_name,
-        "title": title,
-        "authors": [author for author in authors if author],
-        "summary": normalize_space(openalex_abstract_text(work)),
-        "published": date_to_iso(work.get("publication_date") or work.get("publication_year")),
-        "updated": "",
-        "paper_url": str(work.get("doi") or work.get("id") or ""),
-        "pdf_url": str(pdf_url or ""),
-        "categories": concepts,
-    }
-
-
 def find_openalex_by_title(title: str, max_results: int = 5) -> dict[str, Any] | None:
     params = {
         "search": title,
@@ -1165,6 +1176,61 @@ def openalex_abstract_text(work: dict[str, Any]) -> str:
     return " ".join(word for _, word in sorted(words))
 
 
+def openalex_institutions_from_work(work: dict[str, Any]) -> list[str]:
+    institutions = []
+    for authorship in work.get("authorships", []):
+        if not isinstance(authorship, dict):
+            continue
+        for institution in authorship.get("institutions", []) or []:
+            if not isinstance(institution, dict):
+                continue
+            name = normalize_space(str(institution.get("display_name") or ""))
+            if name:
+                institutions.append(name)
+        for raw_affiliation in authorship.get("raw_affiliation_strings", []) or []:
+            name = normalize_space(str(raw_affiliation or ""))
+            if name:
+                institutions.append(name)
+    return list(dict.fromkeys(institutions))
+
+
+def openalex_paper_from_work(work: dict[str, Any], source_name: str = "OpenAlex") -> dict[str, Any] | None:
+    title = normalize_space(str(work.get("title") or ""))
+    work_id = str(work.get("id") or work.get("doi") or title)
+    if not title or not work_id:
+        return None
+    locations = work.get("locations") or []
+    primary = work.get("primary_location") or {}
+    best_oa = work.get("best_oa_location") or {}
+    pdf_url = (
+        primary.get("pdf_url")
+        or best_oa.get("pdf_url")
+        or next((location.get("pdf_url") for location in locations if location.get("pdf_url")), "")
+    )
+    authors = [
+        str((authorship.get("author") or {}).get("display_name") or "")
+        for authorship in work.get("authorships", [])
+    ]
+    concepts = [
+        str(concept.get("display_name") or "")
+        for concept in work.get("concepts", [])[:8]
+        if concept.get("display_name")
+    ]
+    return {
+        "id": f"openalex:{work_id.rsplit('/', 1)[-1]}",
+        "source": source_name,
+        "title": title,
+        "authors": [author for author in authors if author],
+        "summary": normalize_space(openalex_abstract_text(work)),
+        "published": date_to_iso(work.get("publication_date") or work.get("publication_year")),
+        "updated": "",
+        "paper_url": str(work.get("doi") or work.get("id") or ""),
+        "pdf_url": str(pdf_url or ""),
+        "categories": concepts,
+        "institutions": openalex_institutions_from_work(work),
+    }
+
+
 def fetch_openalex(topic: Topic, max_results: int, source: SourceConfig) -> list[dict[str, Any]]:
     params = {
         "search": topic_plain_query(topic),
@@ -1178,41 +1244,11 @@ def fetch_openalex(topic: Topic, max_results: int, source: SourceConfig) -> list
     data = request_json(url, timeout=float(os.getenv("OPENALEX_TIMEOUT_SECONDS", "60")))
     papers = []
     for work in data.get("results", []):
-        locations = work.get("locations") or []
-        primary = work.get("primary_location") or {}
-        best_oa = work.get("best_oa_location") or {}
-        pdf_url = (
-            primary.get("pdf_url")
-            or best_oa.get("pdf_url")
-            or next((location.get("pdf_url") for location in locations if location.get("pdf_url")), "")
-        )
-        authors = [
-            str((authorship.get("author") or {}).get("display_name") or "")
-            for authorship in work.get("authorships", [])
-        ]
-        concepts = [
-            str(concept.get("display_name") or "")
-            for concept in work.get("concepts", [])[:8]
-            if concept.get("display_name")
-        ]
-        work_id = str(work.get("id") or work.get("doi") or work.get("title") or "")
-        if not work_id:
+        candidate = openalex_paper_from_work(work, source.name)
+        if not candidate:
             continue
-        papers.append(
-            {
-                "id": f"openalex:{work_id.rsplit('/', 1)[-1]}",
-                "source": source.name,
-                "title": normalize_space(str(work.get("title") or "")),
-                "authors": [author for author in authors if author],
-                "summary": normalize_space(openalex_abstract_text(work)),
-                "published": date_to_iso(work.get("publication_date") or work.get("publication_year")),
-                "updated": "",
-                "paper_url": str(work.get("doi") or work.get("id") or ""),
-                "pdf_url": str(pdf_url or ""),
-                "categories": concepts,
-                "seed_topic": topic.id,
-            }
-        )
+        candidate["seed_topic"] = topic.id
+        papers.append(candidate)
     return papers
 
 
@@ -1533,6 +1569,17 @@ def env_float(name: str, default: float) -> float:
         return default
 
 
+def effective_daily_paper_limit(days: int, configured_limit: int) -> int:
+    mode = os.getenv("DAILY_PAPER_LIMIT_MODE", "fixed").strip().lower()
+    if mode != "auto":
+        return configured_limit
+    if days <= 2:
+        return max(0, env_int("MAX_DAILY_PAPERS", configured_limit))
+    if days <= 10:
+        return max(0, env_int("MAX_WEEKLY_PAPERS", configured_limit))
+    return max(0, env_int("MAX_MONTHLY_PAPERS", configured_limit))
+
+
 def is_placeholder_conference_summary(paper: dict[str, Any]) -> bool:
     if paper.get("source_type") != "conference" or paper.get("abstract_source"):
         return False
@@ -1564,6 +1611,8 @@ def has_required_conference_context(paper: dict[str, Any]) -> bool:
 
 
 def is_relevant_enough(paper: dict[str, Any], best_match: dict[str, Any]) -> bool:
+    if paper.get("daily_affiliation_rejected"):
+        return False
     if paper.get("source_type") == "conference" and not has_required_conference_context(paper):
         return False
     if best_match.get("keyword_hits"):
@@ -1575,6 +1624,118 @@ def is_relevant_enough(paper: dict[str, Any], best_match: dict[str, Any]) -> boo
     if not has_meaningful_summary(paper):
         return score >= env_float("MIN_TITLE_ONLY_SCORE", 0.18)
     return score >= env_float("MIN_PAPER_SCORE", 0.08)
+
+
+def trusted_affiliation_terms() -> list[str]:
+    return env_list("TRUSTED_AFFILIATION_TERMS", DEFAULT_TRUSTED_AFFILIATION_TERMS)
+
+
+def trusted_affiliation_hits(paper: dict[str, Any]) -> list[str]:
+    institutions = [str(item) for item in paper.get("institutions", []) if str(item).strip()]
+    if not institutions:
+        return []
+    haystack = " | ".join(institutions).lower()
+    hits = []
+    for term in trusted_affiliation_terms():
+        normalized = normalize_space(term).lower()
+        if normalized and normalized in haystack:
+            hits.append(term)
+    return list(dict.fromkeys(hits))
+
+
+def daily_affiliation_mode() -> str:
+    mode = os.getenv("DAILY_AFFILIATION_MODE", "off").strip().lower()
+    if mode not in {"off", "prefer", "require"}:
+        return "off"
+    return mode
+
+
+def enrich_daily_paper_from_openalex_candidate(paper: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    institutions = [str(item) for item in candidate.get("institutions", []) if str(item).strip()]
+    if not institutions:
+        return False
+    paper["institutions"] = list(dict.fromkeys([*paper.get("institutions", []), *institutions]))
+    paper["institution_source"] = "OpenAlex"
+    paper["openalex_id"] = candidate.get("id", "")
+    paper["openalex_url"] = candidate.get("paper_url", "")
+    categories = list(dict.fromkeys([*paper.get("categories", []), *candidate.get("categories", [])]))
+    paper["categories"] = [category for category in categories if category]
+    if candidate.get("authors") and not paper.get("authors"):
+        paper["authors"] = candidate["authors"]
+    return True
+
+
+def should_attempt_daily_metadata_enrichment(paper: dict[str, Any], best_match: dict[str, Any]) -> bool:
+    if paper.get("source_type") == "conference" or paper.get("institutions"):
+        return False
+    if not env_flag("DAILY_ENRICH_OPENALEX_METADATA", False):
+        return False
+    if not str(paper.get("title") or "").strip():
+        return False
+    if best_match.get("keyword_hits"):
+        return True
+    return float(best_match.get("score") or 0.0) >= env_float("DAILY_METADATA_ENRICHMENT_MIN_SCORE", 0.08)
+
+
+def enrich_daily_papers_with_openalex(papers: list[dict[str, Any]]) -> dict[str, Any]:
+    stats = {
+        "daily_metadata_enrichment_candidate_count": len(papers),
+        "daily_metadata_enrichment_attempted": 0,
+        "daily_metadata_enrichment_succeeded": 0,
+        "daily_metadata_enrichment_skipped": 0,
+    }
+    if not env_flag("DAILY_ENRICH_OPENALEX_METADATA", False):
+        stats["daily_metadata_enrichment_skipped"] = len(papers)
+        return stats
+    max_enrichments = max(0, env_int("MAX_DAILY_METADATA_ENRICHMENTS", 30))
+    delay_seconds = max(0.0, env_float("DAILY_METADATA_ENRICHMENT_DELAY_SECONDS", 1.0))
+    attempts = 0
+    for paper in papers:
+        if attempts >= max_enrichments:
+            stats["daily_metadata_enrichment_skipped"] += 1
+            continue
+        title = str(paper.get("title") or "")
+        if not title:
+            continue
+        attempts += 1
+        stats["daily_metadata_enrichment_attempted"] += 1
+        try:
+            candidate = find_openalex_by_title(title, max_results=env_int("DAILY_METADATA_SEARCH_RESULTS", 5))
+        except Exception as exc:
+            print(f"Warning: daily OpenAlex metadata enrichment failed for {title[:80]}: {exc}", file=sys.stderr)
+            continue
+        if candidate and enrich_daily_paper_from_openalex_candidate(paper, candidate):
+            stats["daily_metadata_enrichment_succeeded"] += 1
+            hits = trusted_affiliation_hits(paper)
+            if hits:
+                print(f"Trusted affiliation hit for daily paper: {paper.get('title')} ({', '.join(hits[:3])})", flush=True)
+        if attempts < max_enrichments and delay_seconds > 0:
+            time.sleep(delay_seconds)
+    return stats
+
+
+def apply_daily_affiliation_quality(paper: dict[str, Any], best_match: dict[str, Any]) -> None:
+    if paper.get("source_type") == "conference":
+        return
+    mode = daily_affiliation_mode()
+    if mode == "off":
+        return
+    institutions = [str(item) for item in paper.get("institutions", []) if str(item).strip()]
+    hits = trusted_affiliation_hits(paper)
+    paper["trusted_affiliation_hits"] = hits
+    if hits:
+        paper["affiliation_quality"] = "trusted"
+        bonus = max(0.0, env_float("DAILY_TRUSTED_AFFILIATION_BONUS", 0.08))
+        best_match["score"] = round(min(1.0, float(best_match.get("score") or 0.0) + bonus), 3)
+        best_match["level"] = match_level(float(best_match["score"]))
+        reason = str(best_match.get("reason") or "")
+        best_match["reason"] = f"{reason}；机构命中：{', '.join(hits[:4])}" if reason else f"机构命中：{', '.join(hits[:4])}"
+    elif institutions:
+        paper["affiliation_quality"] = "known_other"
+    else:
+        paper["affiliation_quality"] = "unknown"
+    if mode == "require" and not hits:
+        paper["daily_affiliation_rejected"] = True
 
 
 def conference_enrichment_terms() -> list[str]:
@@ -2065,6 +2226,7 @@ def collect(
     config = load_issue_config(default_config)
     topics = parse_topics(config)
     sources = parse_sources(config)
+    max_new_papers = effective_daily_paper_limit(days, max_new_papers)
     now = dt.datetime.now(dt.timezone.utc)
     conference_sources = parse_conference_sources(config, now)
     active_conference_years_by_source = active_conference_years(conference_sources)
@@ -2089,6 +2251,12 @@ def collect(
         "conference_arxiv_enrichment_succeeded": 0,
         "conference_arxiv_enrichment_skipped": 0,
         "conference_arxiv_enrichment_last_error": "",
+    }
+    daily_metadata_enrichment_stats: dict[str, Any] = {
+        "daily_metadata_enrichment_candidate_count": 0,
+        "daily_metadata_enrichment_attempted": 0,
+        "daily_metadata_enrichment_succeeded": 0,
+        "daily_metadata_enrichment_skipped": 0,
     }
     source_stats: dict[str, dict[str, Any]] = {}
     source_delay_seconds = float(os.getenv("SOURCE_DELAY_SECONDS", "3"))
@@ -2198,6 +2366,7 @@ def collect(
     backfill_days = max(days, env_int("DAILY_BACKFILL_DAYS", 14))
     daily_backfill_cutoff = now - dt.timedelta(days=max(0, backfill_days))
     candidate_records: list[dict[str, Any]] = []
+    daily_metadata_candidates: list[tuple[tuple[float, str], dict[str, Any]]] = []
     conference_enrichment_candidates: list[tuple[tuple[int, float, int, str], dict[str, Any]]] = []
     for paper in dedupe_papers(all_candidates):
         is_conference_paper = paper.get("source_type") == "conference"
@@ -2226,9 +2395,15 @@ def collect(
                 "in_backfill_window": in_backfill_window,
             }
         )
+        if should_attempt_daily_metadata_enrichment(paper, best_match):
+            daily_metadata_candidates.append(((float(best_match.get("score") or 0.0), str(paper.get("title") or "")), paper))
         if should_attempt_conference_abstract_enrichment(paper, best_match):
             conference_enrichment_candidates.append((conference_enrichment_priority(paper, best_match), paper))
 
+    daily_metadata_candidates.sort(key=lambda item: item[0], reverse=True)
+    daily_metadata_enrichment_stats = enrich_daily_papers_with_openalex(
+        [paper for _, paper in daily_metadata_candidates]
+    )
     conference_enrichment_candidates.sort(key=lambda item: item[0], reverse=True)
     conference_enrichment_stats = enrich_conference_papers_from_arxiv(
         [paper for _, paper in conference_enrichment_candidates]
@@ -2248,6 +2423,7 @@ def collect(
         in_backfill_window = bool(record["in_backfill_window"])
         matches = record["matches"]
         best_match = record["best_match"]
+        apply_daily_affiliation_quality(paper, best_match)
         if not is_relevant_enough(paper, best_match):
             filtered_low_relevance += 1
             continue
@@ -2287,6 +2463,8 @@ def collect(
         daily_recent_papers = daily_recent_papers[:max_new_papers]
     if max_new_conference_papers > 0:
         conference_recent_papers = conference_recent_papers[:max_new_conference_papers]
+    daily_trusted_affiliation_count = sum(1 for paper in daily_recent_papers if paper.get("trusted_affiliation_hits"))
+    daily_known_affiliation_count = sum(1 for paper in daily_recent_papers if paper.get("institutions"))
     recent_papers = sorted(
         [*daily_recent_papers, *conference_recent_papers],
         key=lambda p: (p["best_match"]["score"], paper_activity_datetime(p)),
@@ -2349,6 +2527,9 @@ def collect(
         "daily_backfill_candidate_count": len(daily_backfill_candidates),
         "daily_backfill_added_count": daily_backfill_added_count,
         "min_daily_papers": min_daily_papers,
+        "daily_affiliation_mode": daily_affiliation_mode(),
+        "daily_trusted_affiliation_count": daily_trusted_affiliation_count,
+        "daily_known_affiliation_count": daily_known_affiliation_count,
         "filtered_low_relevance_count": filtered_low_relevance,
         "days": days,
         "collection_mode": collection_mode,
@@ -2370,6 +2551,7 @@ def collect(
         "conference_source_count": len(conference_sources),
         "cached_conference_candidate_count": cached_conference_candidate_count,
         "clear_cache": clear_cache,
+        **daily_metadata_enrichment_stats,
         **conference_enrichment_stats,
     }
 
