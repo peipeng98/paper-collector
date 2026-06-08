@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Paper Daily</title>
+    <title>Top Conference Hallucination Radar</title>
     <link rel="stylesheet" href="./styles.css?v=20260530-split-sources" />
   </head>
   <body>
@@ -11,7 +11,7 @@
       <div class="brand">
         <span class="brand-mark">PD</span>
         <div>
-          <h1>Paper Daily</h1>
+          <h1>Top Conference Radar</h1>
           <p id="updatedAt">正在读取数据</p>
         </div>
       </div>
@@ -30,16 +30,16 @@
             <span>护眼</span>
           </button>
         </div>
-        <a class="icon-link" href="https://github.com/Futuresxy/paper-daily/issues" target="_blank" rel="noreferrer" title="配置研究方向">⚙</a>
-        <a class="icon-link" href="https://github.com/Futuresxy/paper-daily/actions" target="_blank" rel="noreferrer" title="查看更新任务">↻</a>
+        <a class="icon-link" href="https://github.com/peipeng98/paper-collector/issues" target="_blank" rel="noreferrer" title="配置研究方向">⚙</a>
+        <a class="icon-link" href="https://github.com/peipeng98/paper-collector/actions" target="_blank" rel="noreferrer" title="查看更新任务">↻</a>
       </nav>
     </header>
 
     <main class="shell">
       <section class="overview" aria-label="概览">
         <div class="overview-title">
-          <p>Research Radar</p>
-          <h2 id="viewTitle">最新论文</h2>
+          <p>Conference Radar</p>
+          <h2 id="viewTitle">顶会幻觉论文</h2>
         </div>
         <div class="metric-grid">
           <div class="metric">
@@ -63,12 +63,12 @@
 
       <section class="toolbar" aria-label="筛选">
         <div class="collection-tabs" role="tablist" aria-label="论文集合">
-          <button class="collection-tab active" type="button" data-collection="daily">每日新论文</button>
-          <button class="collection-tab" type="button" data-collection="conference">顶会精品</button>
+          <button class="collection-tab" type="button" data-collection="daily">每日新论文</button>
+          <button class="collection-tab active" type="button" data-collection="conference">顶会精品</button>
         </div>
         <div class="tabs" role="tablist" aria-label="视图">
-          <button class="tab" type="button" data-view="all">全部</button>
-          <button class="tab active" type="button" data-view="daily">当日</button>
+          <button class="tab active" type="button" data-view="all">全部</button>
+          <button class="tab" type="button" data-view="daily">当日</button>
           <button class="tab" type="button" data-view="week">本周</button>
           <button class="tab" type="button" data-view="month">本月</button>
           <button class="tab" type="button" data-view="highlights">本周精选</button>
@@ -101,7 +101,7 @@
       <section class="content">
         <div class="content-head">
           <div>
-            <h2 id="listTitle">当日论文</h2>
+            <h2 id="listTitle">顶会精品</h2>
             <p id="scopeLabel">-</p>
           </div>
           <span id="resultCount">0 篇</span>

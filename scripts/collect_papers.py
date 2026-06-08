@@ -504,7 +504,7 @@ def fetch_arxiv_query(search_query: str, max_results: int, sort_by: str, sort_or
     timeout_seconds = float(os.getenv("ARXIV_TIMEOUT_SECONDS", "90"))
     last_error: Exception | None = None
     for attempt in range(retry_count):
-        req = urllib.request.Request(url, headers={"User-Agent": "paper-daily-collector/1.0 (+https://github.com/Futuresxy/paper-daily)"})
+        req = urllib.request.Request(url, headers={"User-Agent": "paper-daily-collector/1.0 (+https://github.com/peipeng98/paper-collector)"})
         try:
             with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
                 xml_data = resp.read()
@@ -839,7 +839,7 @@ def fetch_dblp_json(query: str, max_results: int) -> dict[str, Any]:
     last_error: Exception | None = None
     for attempt in range(retry_count):
         try:
-            return fetch_json_url(url, "paper-daily-collector/1.0 (+https://github.com/Futuresxy/paper-daily)", timeout_seconds)
+            return fetch_json_url(url, "paper-daily-collector/1.0 (+https://github.com/peipeng98/paper-collector)", timeout_seconds)
         except Exception as exc:
             last_error = exc
             if not is_retryable_dblp_error(exc) or attempt == retry_count - 1:
@@ -1012,7 +1012,7 @@ def fetch_dblp_html_toc(toc_key: str, source: ConferenceSource, year: int) -> li
     retry_count = max(1, int(os.getenv("DBLP_RETRIES", "3")))
     last_error: Exception | None = None
     for attempt in range(retry_count):
-        req = urllib.request.Request(url, headers={"User-Agent": "paper-daily-collector/1.0 (+https://github.com/Futuresxy/paper-daily)"})
+        req = urllib.request.Request(url, headers={"User-Agent": "paper-daily-collector/1.0 (+https://github.com/peipeng98/paper-collector)"})
         try:
             with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
                 html_text = resp.read().decode("utf-8", "replace")

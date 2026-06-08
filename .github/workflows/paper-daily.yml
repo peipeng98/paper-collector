@@ -1,0 +1,99 @@
+name: Paper Daily
+
+on:
+  schedule:
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Lookback days for non-conference sources"
+        required: true
+        default: "7"
+      clear_cache:
+        description: "Ignore cached paper data and rebuild from configured sources"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+  issues: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  collect-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore paper data cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            web/data/papers.json
+            web/data/conference_papers.json
+          key: paper-data-${{ github.ref_name }}-${{ hashFiles('config/interests.json') }}-${{ github.run_id }}
+          restore-keys: |
+            paper-data-${{ github.ref_name }}-${{ hashFiles('config/interests.json') }}-
+            paper-data-${{ github.ref_name }}-
+            paper-data-
+
+      - name: Collect papers
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days || '7' }}
+          CLEAR_PAPER_CACHE: ${{ github.event.inputs.clear_cache || 'false' }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          CONTACT_EMAIL: ${{ vars.CONTACT_EMAIL }}
+          OPENALEX_EMAIL: ${{ vars.OPENALEX_EMAIL }}
+          CROSSREF_EMAIL: ${{ vars.CROSSREF_EMAIL }}
+          MAX_PER_CONFERENCE: "3000"
+          MAX_NEW_CONFERENCE_PAPERS: "80"
+          MAX_STORED_CONFERENCE_PAPERS: "300"
+          MAX_SUMMARIES: "20"
+          MIN_DAILY_PAPERS: "0"
+          CONFERENCE_ABSTRACT_SOURCES: "arxiv,openalex,crossref"
+          LLM_SUMMARIZE_CONFERENCE: "true"
+          LLM_SUMMARIZE_TITLE_ONLY: "false"
+        run: python scripts/collect_papers.py
+
+      - name: Save paper data cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            web/data/papers.json
+            web/data/conference_papers.json
+          key: paper-data-${{ github.ref_name }}-${{ hashFiles('config/interests.json') }}-${{ github.run_id }}
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

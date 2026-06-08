@@ -11,8 +11,8 @@ const state = {
     query: "",
     topic: "all",
     level: "all",
-    collection: "daily",
-    view: "daily",
+    collection: "conference",
+    view: "all",
     date: "",
   },
 };

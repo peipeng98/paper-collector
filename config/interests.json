@@ -1,128 +1,139 @@
 {
   "sources": [
-    { "type": "arxiv", "name": "arXiv" }
+    { "type": "arxiv", "name": "arXiv", "enabled": false }
   ],
   "conference_sources": {
     "enabled": true,
-    "current_year": 2026,
-    "lookback_years": 2,
+    "years": [2026, 2025],
     "venues": [
       {
-        "id": "isca",
-        "name": "ISCA",
-        "group": "computer architecture",
-        "dblp_toc_patterns": ["db/conf/isca/isca{year}.bht"]
+        "id": "icml",
+        "name": "ICML",
+        "group": "machine learning",
+        "dblp_toc_patterns": ["db/conf/icml/icml{year}.bht"]
       },
       {
-        "id": "micro",
-        "name": "MICRO",
-        "group": "computer architecture",
-        "dblp_toc_patterns": ["db/conf/micro/micro{year}.bht"]
+        "id": "iclr",
+        "name": "ICLR",
+        "group": "machine learning",
+        "dblp_toc_patterns": ["db/conf/iclr/iclr{year}.bht"]
       },
       {
-        "id": "hpca",
-        "name": "HPCA",
-        "group": "computer architecture",
-        "dblp_toc_patterns": ["db/conf/hpca/hpca{year}.bht"]
-      },
-      {
-        "id": "asplos",
-        "name": "ASPLOS",
-        "group": "computer architecture",
+        "id": "neurips",
+        "name": "NeurIPS",
+        "group": "machine learning",
         "dblp_toc_patterns": [
-          "db/conf/asplos/asplos{year}-1.bht",
-          "db/conf/asplos/asplos{year}-2.bht",
-          "db/conf/asplos/asplos{year}-3.bht",
-          "db/conf/asplos/asplos{year}-4.bht"
+          "db/conf/nips/nips{year}.bht",
+          "db/conf/neurips/neurips{year}.bht"
         ]
       },
       {
-        "id": "mlsys",
-        "name": "MLSys",
-        "group": "systems for machine learning",
-        "dblp_toc_patterns": ["db/conf/mlsys/mlsys{year}.bht"]
+        "id": "acl",
+        "name": "ACL",
+        "group": "natural language processing",
+        "dblp_toc_patterns": [
+          "db/conf/acl/acl{year}-1.bht",
+          "db/conf/acl/acl{year}-2.bht"
+        ]
       },
       {
-        "id": "eurosys",
-        "name": "EuroSys",
-        "group": "systems",
-        "dblp_toc_patterns": ["db/conf/eurosys/eurosys{year}.bht"]
+        "id": "cvpr",
+        "name": "CVPR",
+        "group": "computer vision",
+        "dblp_toc_patterns": ["db/conf/cvpr/cvpr{year}.bht"]
       }
     ]
   },
   "topics": [
     {
-      "id": "llm_low_precision_quantization",
-      "name": "大模型低精度量化",
-      "description": "关注大语言模型低比特量化、混合精度、量化感知训练、后训练量化、权重量化、激活量化、KV cache 量化以及量化对推理性能和精度的影响。",
+      "id": "mllm_visual_object_hallucination",
+      "name": "多模态视觉与对象幻觉",
+      "description": "关注 MLLM/LVLM 在图像理解、视觉问答和详细图像描述中的 visual hallucination、object hallucination、grounding failure、vision-language alignment failure，以及视觉证据不足或语言先验过强导致的非 grounded 输出。",
       "keywords": [
-        "large language model quantization",
-        "LLM quantization",
-        "low-bit quantization",
-        "post-training quantization",
-        "weight-only quantization",
-        "activation quantization",
-        "mixed precision",
-        "FP8",
-        "INT4",
-        "INT8",
-        "KV cache quantization"
+        "multimodal large language model hallucination",
+        "MLLM hallucination",
+        "LVLM hallucination",
+        "visual hallucination",
+        "object hallucination",
+        "vision-language hallucination",
+        "vision-language alignment",
+        "visual grounding",
+        "grounding failure",
+        "language prior"
       ],
-      "arxiv_categories": ["cs.CL", "cs.LG", "cs.AI", "cs.DC"]
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
     },
     {
-      "id": "tensor_compute_unit_architecture",
-      "name": "张量计算单元结构",
-      "description": "关注 GPU/NPU/TPU 张量计算单元、矩阵乘加阵列、数据流架构、片上存储层次、低精度张量核、AI 加速器微架构和算子映射。",
+      "id": "token_level_visual_evidence_detector",
+      "name": "Token-level 视觉证据与幻觉检测",
+      "description": "关注生成 token 或 claim 是否被图像区域支持，包括 token-level visual evidence、visual support、saliency/attribution、modality reliance、online hallucination detector，以及把视觉支持信号转化为校准检测器的方法。",
       "keywords": [
-        "tensor processing unit",
-        "tensor core",
-        "matrix multiply unit",
-        "systolic array",
-        "AI accelerator architecture",
-        "NPU architecture",
-        "GPU tensor core",
-        "low precision tensor compute",
-        "dataflow architecture",
-        "on-chip memory hierarchy"
+        "token-level visual evidence",
+        "visual support",
+        "visual evidence attribution",
+        "hallucination detector",
+        "token attribution",
+        "modality reliance",
+        "image region attribution",
+        "visual evidence routing",
+        "language prior influence",
+        "claim-level hallucination"
       ],
-      "arxiv_categories": ["cs.AR", "cs.DC", "cs.LG", "cs.PF"]
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
     },
     {
-      "id": "llm_inference_cluster_communication",
-      "name": "大模型推理集群通信优化",
-      "description": "关注分布式大模型推理、prefill/decode 分离、张量并行、流水并行、专家并行、跨节点通信、调度、负载均衡和 serving 系统吞吐延迟优化。",
+      "id": "causal_intervention_for_hallucination",
+      "name": "幻觉因果诊断与干预",
+      "description": "关注用 causal attribution、counterfactual、intervention、causal mediation、head/module ablation 和 representation-level counterfactual calibration 来定位、解释或缓解 MLLM/LVLM hallucination。",
       "keywords": [
-        "LLM inference serving",
-        "distributed inference",
-        "inference cluster",
-        "tensor parallelism",
-        "pipeline parallelism",
-        "expert parallelism",
-        "all-reduce",
-        "collective communication",
-        "prefill decode disaggregation",
-        "serving scheduler"
+        "causal intervention hallucination",
+        "causal attribution hallucination",
+        "counterfactual hallucination",
+        "causal mediation",
+        "hallucination heads",
+        "attention head intervention",
+        "module ablation",
+        "representation counterfactual",
+        "causal diagnosis",
+        "causal mitigation"
       ],
-      "arxiv_categories": ["cs.DC", "cs.PF", "cs.CL", "cs.LG"]
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
     },
     {
-      "id": "kvcache_compression_storage_scheduling",
-      "name": "KV cache 压缩与存储调度",
-      "description": "关注大模型推理中的 KV cache 压缩、淘汰、分页、卸载、预取、层级存储、显存管理和长上下文推理效率优化。",
+      "id": "long_form_lvlm_evidence_attrition",
+      "name": "长生成 LVLM 幻觉与视觉证据衰减",
+      "description": "关注 long-form image captioning、detailed description 和多步 autoregressive generation 中的 recognition-generation mismatch、visual evidence attrition、prefix-conditioned visual evidence restoration、caption faithfulness 和长输出中的 groundedness。",
       "keywords": [
-        "KV cache compression",
-        "KV cache eviction",
-        "KV cache scheduling",
-        "paged attention",
-        "attention cache",
-        "long context inference",
-        "memory offloading",
-        "GPU memory management",
-        "cache prefetching",
-        "LLM serving memory"
+        "long-form LVLM hallucination",
+        "long-form multimodal generation",
+        "visual evidence attrition",
+        "recognition generation mismatch",
+        "prefix-conditioned visual evidence",
+        "autoregressive decoding hallucination",
+        "caption faithfulness",
+        "detailed image caption hallucination",
+        "grounded caption generation",
+        "visual claim verification"
       ],
-      "arxiv_categories": ["cs.CL", "cs.LG", "cs.DC", "cs.PF"]
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
+    },
+    {
+      "id": "hallucination_training_post_training_mitigation",
+      "name": "幻觉缓解训练与后训练方法",
+      "description": "关注可以扩展到训练、微调或后训练阶段的 hallucination mitigation，包括 hallucination-aware instruction tuning、multimodal preference optimization、DPO/RLHF/RLAIF、causal reward、faithfulness reward、grounding-aware data construction 和 training-time calibration。",
+      "keywords": [
+        "hallucination mitigation training",
+        "hallucination-aware instruction tuning",
+        "multimodal preference optimization",
+        "DPO hallucination",
+        "RLHF hallucination",
+        "RLAIF hallucination",
+        "causal reward",
+        "faithfulness reward",
+        "grounding-aware training",
+        "post-training hallucination"
+      ],
+      "arxiv_categories": ["cs.CV", "cs.CL", "cs.AI", "cs.LG"]
     }
   ]
 }
