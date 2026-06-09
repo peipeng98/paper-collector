@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 import json
 import os
 import tempfile
@@ -17,6 +18,8 @@ from scripts.collect_papers import (
     collection_cutoff,
     conference_abstract_sources,
     default_conference_years,
+    default_llm_base_url,
+    default_llm_model,
     effective_daily_paper_limit,
     enrich_conference_paper_from_arxiv,
     fetch_arxiv,
@@ -32,6 +35,7 @@ from scripts.collect_papers import (
     openalex_abstract_text,
     openalex_institutions_from_work,
     openalex_paper_from_work,
+    llm_http_error_message,
     parse_arxiv_entries,
     parse_conference_sources,
     parse_dblp_html_toc,
@@ -79,6 +83,12 @@ class RetentionTest(unittest.TestCase):
         os.environ.pop("CUSTOM_FEED_BEARER_TOKEN", None)
         os.environ.pop("LLM_SUMMARIZE_CONFERENCE", None)
         os.environ.pop("LLM_SUMMARIZE_TITLE_ONLY", None)
+        os.environ.pop("LLM_API_KEY", None)
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ.pop("DEEPSEEK_API_KEY", None)
+        os.environ.pop("LLM_BASE_URL", None)
+        os.environ.pop("LLM_MODEL", None)
+        os.environ.pop("LLM_MAX_TOKENS", None)
         os.environ.pop("MIN_CONFERENCE_SCORE", None)
         os.environ.pop("MIN_TITLE_ONLY_SCORE", None)
         os.environ.pop("MIN_PAPER_SCORE", None)
@@ -672,6 +682,26 @@ class RetentionTest(unittest.TestCase):
         os.environ["LLM_SUMMARIZE_TITLE_ONLY"] = "true"
         self.assertTrue(should_summarize_paper_with_llm({"source_type": "conference", "summary": "DBLP 题录。"}))
         self.assertTrue(should_summarize_paper_with_llm({"source": "Crossref", "summary": ""}))
+
+    def test_deepseek_defaults_use_current_api_model(self) -> None:
+        os.environ["DEEPSEEK_API_KEY"] = "test-key"
+
+        self.assertEqual(default_llm_base_url(), "https://api.deepseek.com")
+        self.assertEqual(default_llm_model(), "deepseek-v4-flash")
+
+    def test_llm_http_error_message_includes_response_body(self) -> None:
+        error = urllib.error.HTTPError(
+            "https://api.deepseek.com/chat/completions",
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b'{"error":{"message":"Model Not Exist","type":"invalid_request_error"}}'),
+        )
+
+        message = llm_http_error_message(error)
+
+        self.assertIn("HTTP 400", message)
+        self.assertIn("Model Not Exist", message)
 
     def test_merge_retains_previous_high_medium_and_recent_low(self) -> None:
         now = dt.datetime(2026, 5, 28, tzinfo=dt.timezone.utc)

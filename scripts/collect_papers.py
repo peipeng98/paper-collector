@@ -1890,16 +1890,34 @@ def llm_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def default_llm_base_url() -> str:
+    return "https://api.deepseek.com" if os.getenv("DEEPSEEK_API_KEY") else "https://api.openai.com/v1"
+
+
+def default_llm_model() -> str:
+    return "deepseek-v4-flash" if os.getenv("DEEPSEEK_API_KEY") else "gpt-4o-mini"
+
+
+def llm_http_error_message(exc: urllib.error.HTTPError) -> str:
+    try:
+        body = exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        body = ""
+    detail = normalize_space(body)
+    if detail:
+        return f"HTTP {exc.code}: {detail[:500]}"
+    return f"HTTP {exc.code}: {exc.reason}"
+
+
 def call_openai_compatible(prompt: str) -> dict[str, Any]:
     api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
-    base_url = os.getenv("LLM_BASE_URL", "")
-    if not base_url:
-        base_url = "https://api.deepseek.com/v1" if os.getenv("DEEPSEEK_API_KEY") else "https://api.openai.com/v1"
-    model = os.getenv("LLM_MODEL", "deepseek-chat" if os.getenv("DEEPSEEK_API_KEY") else "gpt-4o-mini")
+    base_url = os.getenv("LLM_BASE_URL", "") or default_llm_base_url()
+    model = os.getenv("LLM_MODEL", "") or default_llm_model()
     endpoint = base_url.rstrip("/") + "/chat/completions"
     payload = {
         "model": model,
         "temperature": 0.2,
+        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "1200")),
         "response_format": {"type": "json_object"},
         "messages": [
             {
@@ -1915,9 +1933,15 @@ def call_openai_compatible(prompt: str) -> dict[str, Any]:
         headers=llm_headers(api_key),
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=90) as resp:
+    try:
+        resp = urllib.request.urlopen(req, timeout=90)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"LLM API request failed: {llm_http_error_message(exc)}") from exc
+    with resp:
         data = json.loads(resp.read().decode("utf-8"))
     content = data["choices"][0]["message"]["content"]
+    if not str(content).strip():
+        raise RuntimeError("LLM API returned empty content")
     return json.loads(content)
 
 
