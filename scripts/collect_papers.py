@@ -79,6 +79,56 @@ DEFAULT_CONFERENCE_ENRICHMENT_TERMS = [
     "self-correct",
     "verification",
     "caption faithfulness",
+    "long-form",
+    "long caption",
+    "detailed caption",
+    "hyper-detailed",
+    "dense hallucination",
+    "span-level",
+    "temporal hallucination",
+    "video hallucination",
+    "video-llm",
+    "vid-llm",
+    "video large language model",
+    "video multimodal",
+    "long video",
+    "streaming video",
+    "temporal reasoning",
+    "temporal grounding",
+    "video question answering",
+    "video instruction",
+    "video token",
+    "causal inference",
+    "structural causal",
+    "causal graph",
+    "counterfactual",
+    "causal mediation",
+    "causal debiasing",
+    "causal decoding",
+    "modality prior",
+    "language prior",
+    "agent memory",
+    "llm agent memory",
+    "memory systems",
+    "long-term memory",
+    "episodic memory",
+    "semantic memory",
+    "procedural memory",
+    "memory consolidation",
+    "selective forgetting",
+    "reflective memory",
+    "clip training",
+    "contrastive language-image",
+    "language-image pretraining",
+    "openclip",
+    "siglip",
+    "eva-clip",
+    "long-clip",
+    "llm2clip",
+    "datacomp",
+    "image-text pair",
+    "synthetic captions",
+    "scaling laws",
 ]
 DEFAULT_TRUSTED_AFFILIATION_TERMS = [
     "OpenAI",
@@ -136,6 +186,8 @@ class Topic:
     description: str
     keywords: list[str]
     arxiv_categories: list[str]
+    daily_enabled: bool = True
+    conference_enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -178,6 +230,16 @@ def normalize_space(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def text_contains_term(text: str, term: str) -> bool:
+    normalized = normalize_space(term).lower()
+    if not normalized:
+        return False
+    pattern = re.escape(normalized)
+    pattern = pattern.replace(r"\-", r"[\s\-]+").replace(r"\ ", r"[\s\-]+")
+    plural_suffix = "s?" if normalized[-1].isalpha() and not normalized.endswith("s") else ""
+    return re.search(rf"(?<![a-z0-9]){pattern}{plural_suffix}(?![a-z0-9])", text.lower()) is not None
+
+
 def slugify(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
 
@@ -210,6 +272,8 @@ def parse_topics(config: dict[str, Any]) -> list[Topic]:
                 description=item.get("description", ""),
                 keywords=[str(k) for k in item.get("keywords", [])],
                 arxiv_categories=[str(c) for c in item.get("arxiv_categories", [])],
+                daily_enabled=bool(item.get("daily_enabled", True)),
+                conference_enabled=bool(item.get("conference_enabled", True)),
             )
         )
     if not topics:
@@ -1505,7 +1569,7 @@ def keyword_score(topic: Topic, paper: dict[str, Any]) -> tuple[float, list[str]
     weighted = 0.0
     for keyword in topic.keywords:
         normalized = keyword.lower()
-        if normalized in haystack:
+        if text_contains_term(haystack, normalized):
             hits.append(keyword)
             weighted += min(1.0, max(0.35, len(normalized.split()) / 5))
     score = min(1.0, weighted / max(2.0, min(5.0, len(topic.keywords) / 2)))
@@ -1595,8 +1659,8 @@ def has_meaningful_summary(paper: dict[str, Any], min_chars: int = 80) -> bool:
 
 
 def paper_text_contains_any_term(paper: dict[str, Any], terms: list[str]) -> bool:
-    haystack = normalize_space(f"{paper.get('title', '')} {paper.get('summary', '')}").lower()
-    return any(normalize_space(term).lower() in haystack for term in terms if normalize_space(term))
+    haystack = normalize_space(f"{paper.get('title', '')} {paper.get('summary', '')}")
+    return any(text_contains_term(haystack, term) for term in terms if normalize_space(term))
 
 
 def conference_required_context_terms() -> list[str]:
@@ -1620,6 +1684,8 @@ def is_relevant_enough(paper: dict[str, Any], best_match: dict[str, Any]) -> boo
 
     score = float(best_match.get("score") or 0.0)
     if paper.get("source_type") == "conference":
+        if not has_meaningful_summary(paper) and not conference_enrichment_title_hits(paper):
+            return score >= env_float("MIN_CONFERENCE_TITLE_ONLY_SCORE", 0.32)
         return score >= env_float("MIN_CONFERENCE_SCORE", 0.18)
     if not has_meaningful_summary(paper):
         return score >= env_float("MIN_TITLE_ONLY_SCORE", 0.18)
@@ -1746,8 +1812,8 @@ def conference_enrichment_title_hits(paper: dict[str, Any]) -> list[str]:
     haystack = normalize_space(f"{paper.get('title', '')} {paper.get('summary', '')}").lower()
     hits = []
     for term in conference_enrichment_terms():
-        normalized = normalize_space(term).lower()
-        if normalized and normalized in haystack:
+        normalized = normalize_space(term)
+        if normalized and text_contains_term(haystack, normalized):
             hits.append(term)
     return hits
 
@@ -2039,6 +2105,69 @@ def paper_key(paper: dict[str, Any]) -> str:
     return str(paper.get("id") or paper.get("paper_url") or "")
 
 
+def paper_selection_sort_key(paper: dict[str, Any]) -> tuple[float, dt.datetime]:
+    return float((paper.get("best_match") or {}).get("score") or 0.0), paper_activity_datetime(paper)
+
+
+def select_balanced_papers(
+    papers: list[dict[str, Any]],
+    max_total: int,
+    max_per_topic: int = 0,
+) -> list[dict[str, Any]]:
+    ranked = sorted(papers, key=paper_selection_sort_key, reverse=True)
+    if not ranked:
+        return []
+    if max_total <= 0:
+        max_total = len(ranked)
+    if max_per_topic <= 0:
+        return ranked[:max_total]
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    topic_order: list[str] = []
+    for paper in ranked:
+        topic_id = str((paper.get("best_match") or {}).get("topic_id") or "unknown")
+        if topic_id not in groups:
+            groups[topic_id] = []
+            topic_order.append(topic_id)
+        groups[topic_id].append(paper)
+
+    selected: list[dict[str, Any]] = []
+    selected_keys: set[str] = set()
+    for topic_rank in range(max_per_topic):
+        for topic_id in topic_order:
+            if len(selected) >= max_total:
+                break
+            group = groups[topic_id]
+            if topic_rank >= len(group):
+                continue
+            paper = group[topic_rank]
+            key = paper_key(paper)
+            selected.append(paper)
+            if key:
+                selected_keys.add(key)
+        if len(selected) >= max_total:
+            break
+
+    for paper in ranked:
+        if len(selected) >= max_total:
+            break
+        key = paper_key(paper)
+        if key and key in selected_keys:
+            continue
+        selected.append(paper)
+        if key:
+            selected_keys.add(key)
+    return selected
+
+
+def topic_distribution(papers: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for paper in papers:
+        topic_id = str((paper.get("best_match") or {}).get("topic_id") or "unknown")
+        counts[topic_id] = counts.get(topic_id, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def best_match_level(paper: dict[str, Any]) -> str:
     return str((paper.get("best_match") or {}).get("level") or "low").lower()
 
@@ -2249,8 +2378,13 @@ def collect(
     default_config = load_json(config_path)
     config = load_issue_config(default_config)
     topics = parse_topics(config)
+    daily_topics = [topic for topic in topics if topic.daily_enabled]
+    conference_topics = [topic for topic in topics if topic.conference_enabled]
+    topic_by_id = {topic.id: topic for topic in topics}
     sources = parse_sources(config)
     max_new_papers = effective_daily_paper_limit(days, max_new_papers)
+    max_daily_papers_per_topic = max(0, env_int("MAX_DAILY_PAPERS_PER_TOPIC", 0))
+    max_conference_papers_per_topic = max(0, env_int("MAX_CONFERENCE_PAPERS_PER_TOPIC", 0))
     now = dt.datetime.now(dt.timezone.utc)
     conference_sources = parse_conference_sources(config, now)
     active_conference_years_by_source = active_conference_years(conference_sources)
@@ -2291,7 +2425,7 @@ def collect(
         if is_feed_source(source):
             print(f"Fetching feed source: {source.name}", flush=True)
             try:
-                feed_papers = fetch_feed(source, max_per_topic * max(1, len(topics)))
+                feed_papers = fetch_feed(source, max_per_topic * max(1, len(daily_topics)))
                 all_candidates.extend(feed_papers)
                 successful_fetches += 1
                 source_stats[source.name]["successful_fetches"] += 1
@@ -2303,7 +2437,7 @@ def collect(
             time.sleep(source_delay_seconds)
             continue
 
-        for index, topic in enumerate(topics):
+        for index, topic in enumerate(daily_topics):
             if index:
                 if source.type == "arxiv":
                     time.sleep(float(os.getenv("ARXIV_DELAY_SECONDS", "15")))
@@ -2321,7 +2455,7 @@ def collect(
                 source_stats[source.name]["last_error"] = str(exc)
                 print(f"Warning: {source.name} request failed for {topic.name}: {exc}", file=sys.stderr)
                 if source.type == "arxiv" and should_stop_arxiv_fetches(exc):
-                    skipped = len(topics) - index - 1
+                    skipped = len(daily_topics) - index - 1
                     failed_fetches += skipped
                     source_stats[source.name]["failed_fetches"] += skipped
                     if skipped:
@@ -2408,7 +2542,10 @@ def collect(
                 daily_outside_cutoff_count += 1
             continue
 
-        matches = [score_paper(topic, paper) for topic in topics]
+        scoring_topics = conference_topics if is_conference_paper else daily_topics
+        if not scoring_topics:
+            continue
+        matches = [score_paper(topic, paper) for topic in scoring_topics]
         matches.sort(key=lambda item: item["score"], reverse=True)
         best_match = matches[0]
         candidate_records.append(
@@ -2437,7 +2574,9 @@ def collect(
             paper = record["paper"]
             if paper.get("source_type") != "conference":
                 continue
-            matches = [score_paper(topic, paper) for topic in topics]
+            if not conference_topics:
+                continue
+            matches = [score_paper(topic, paper) for topic in conference_topics]
             matches.sort(key=lambda item: item["score"], reverse=True)
             record["matches"] = matches
             record["best_match"] = matches[0]
@@ -2483,10 +2622,16 @@ def collect(
     candidate_paper_count = len(daily_recent_papers) + len(conference_recent_papers)
     daily_candidate_paper_count = len(daily_recent_papers)
     conference_candidate_paper_count = len(conference_recent_papers)
-    if max_new_papers > 0:
-        daily_recent_papers = daily_recent_papers[:max_new_papers]
-    if max_new_conference_papers > 0:
-        conference_recent_papers = conference_recent_papers[:max_new_conference_papers]
+    daily_recent_papers = select_balanced_papers(
+        daily_recent_papers,
+        max_new_papers,
+        max_daily_papers_per_topic,
+    )
+    conference_recent_papers = select_balanced_papers(
+        conference_recent_papers,
+        max_new_conference_papers,
+        max_conference_papers_per_topic,
+    )
     daily_trusted_affiliation_count = sum(1 for paper in daily_recent_papers if paper.get("trusted_affiliation_hits"))
     daily_known_affiliation_count = sum(1 for paper in daily_recent_papers if paper.get("institutions"))
     recent_papers = sorted(
@@ -2499,7 +2644,9 @@ def collect(
     for paper in recent_papers[:max_summaries]:
         if not should_summarize_paper_with_llm(paper):
             continue
-        best_topic = next(topic for topic in topics if topic.id == paper["best_match"]["topic_id"])
+        best_topic = topic_by_id.get(paper["best_match"]["topic_id"])
+        if not best_topic:
+            continue
         llm_jobs.append((best_topic, paper))
 
     if llm_enabled() and llm_jobs:
@@ -2561,6 +2708,12 @@ def collect(
         "max_per_topic": max_per_topic,
         "max_new_papers": max_new_papers,
         "max_new_conference_papers": max_new_conference_papers,
+        "max_daily_papers_per_topic": max_daily_papers_per_topic,
+        "max_conference_papers_per_topic": max_conference_papers_per_topic,
+        "daily_topic_count": len(daily_topics),
+        "conference_topic_count": len(conference_topics),
+        "daily_selected_topic_distribution": topic_distribution(daily_recent_papers),
+        "conference_selected_topic_distribution": topic_distribution(conference_recent_papers),
         "sources": [source.__dict__ for source in sources],
         "conference_sources": [source.__dict__ for source in conference_sources],
         "source_stats": source_stats,
@@ -2584,7 +2737,7 @@ def collect(
         "generated_at_iso": now.isoformat(),
         "config_source": "issue" if config is not default_config else "file",
         "data_kind": "daily",
-        "topics": [topic.__dict__ for topic in topics],
+        "topics": [topic.__dict__ for topic in daily_topics],
         "papers": daily_merged_papers,
         "stats": {
             **base_stats,
@@ -2606,7 +2759,7 @@ def collect(
         "generated_at_iso": now.isoformat(),
         "config_source": "issue" if config is not default_config else "file",
         "data_kind": "conference",
-        "topics": [topic.__dict__ for topic in topics],
+        "topics": [topic.__dict__ for topic in conference_topics],
         "papers": conference_merged_papers,
         "stats": {
             **base_stats,

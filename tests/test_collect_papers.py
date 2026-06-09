@@ -41,11 +41,14 @@ from scripts.collect_papers import (
     parse_dblp_html_toc,
     parse_dblp_hits,
     parse_sources,
+    parse_topics,
     should_retry_arxiv_error,
     should_attempt_conference_abstract_enrichment,
+    select_balanced_papers,
     trusted_affiliation_hits,
     should_summarize_paper_with_llm,
     split_conference_payload,
+    score_paper,
     source_request_headers,
     SourceConfig,
     semantic_scholar_paper_from_item,
@@ -90,6 +93,7 @@ class RetentionTest(unittest.TestCase):
         os.environ.pop("LLM_MODEL", None)
         os.environ.pop("LLM_MAX_TOKENS", None)
         os.environ.pop("MIN_CONFERENCE_SCORE", None)
+        os.environ.pop("MIN_CONFERENCE_TITLE_ONLY_SCORE", None)
         os.environ.pop("MIN_TITLE_ONLY_SCORE", None)
         os.environ.pop("MIN_PAPER_SCORE", None)
         os.environ.pop("CONFERENCE_ABSTRACT_SOURCES", None)
@@ -108,6 +112,8 @@ class RetentionTest(unittest.TestCase):
         os.environ.pop("MAX_DAILY_PAPERS", None)
         os.environ.pop("MAX_WEEKLY_PAPERS", None)
         os.environ.pop("MAX_MONTHLY_PAPERS", None)
+        os.environ.pop("MAX_DAILY_PAPERS_PER_TOPIC", None)
+        os.environ.pop("MAX_CONFERENCE_PAPERS_PER_TOPIC", None)
         os.environ.pop("DAILY_ENRICH_OPENALEX_METADATA", None)
         os.environ.pop("MAX_DAILY_METADATA_ENRICHMENTS", None)
         os.environ.pop("DAILY_METADATA_ENRICHMENT_DELAY_SECONDS", None)
@@ -226,6 +232,34 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(sources[1].url, "https://example.com/rss.xml")
         self.assertEqual(sources[1].headers_env, "CUSTOM_FEED_HEADERS")
 
+    def test_parse_topics_supports_daily_and_conference_scopes(self) -> None:
+        topics = parse_topics(
+            {
+                "topics": [
+                    {"name": "Default Scope", "keywords": ["default"]},
+                    {
+                        "id": "conference_only",
+                        "name": "Conference Only",
+                        "keywords": ["agent memory"],
+                        "daily_enabled": False,
+                    },
+                    {
+                        "id": "daily_only",
+                        "name": "Daily Only",
+                        "keywords": ["arxiv stream"],
+                        "conference_enabled": False,
+                    },
+                ]
+            }
+        )
+
+        self.assertTrue(topics[0].daily_enabled)
+        self.assertTrue(topics[0].conference_enabled)
+        self.assertFalse(topics[1].daily_enabled)
+        self.assertTrue(topics[1].conference_enabled)
+        self.assertTrue(topics[2].daily_enabled)
+        self.assertFalse(topics[2].conference_enabled)
+
     def test_semantic_scholar_sources_are_opt_in(self) -> None:
         sources = parse_sources({"sources": ["arxiv", "semantic_scholar"]})
 
@@ -326,6 +360,35 @@ class RetentionTest(unittest.TestCase):
         query = arxiv_query_for_topic(topic)
 
         self.assertIn(" AND ", query)
+
+    def test_keyword_scoring_does_not_match_acronyms_inside_words(self) -> None:
+        topic = Topic(
+            id="long_form",
+            name="Long-form MLLM Hallucination",
+            description="long-form multimodal hallucination",
+            keywords=["DeCo", "OPERA", "video large language model"],
+            arxiv_categories=[],
+        )
+
+        false_match = score_paper(
+            topic,
+            {
+                "title": "Decoder-only Diffusion Fourier Neural Operator",
+                "summary": "A generic visual generation method.",
+                "categories": [],
+            },
+        )
+        true_match = score_paper(
+            topic,
+            {
+                "title": "OPERA: Mitigating Hallucination in Video Large Language Models",
+                "summary": "This paper studies hallucination in video large language models.",
+                "categories": [],
+            },
+        )
+
+        self.assertEqual(false_match["keyword_hits"], [])
+        self.assertEqual(true_match["keyword_hits"], ["OPERA", "video large language model"])
 
     def test_title_matching_allows_punctuation_differences(self) -> None:
         self.assertTrue(titles_match("Fast Tensor Compute: An LLM Serving Study.", "Fast Tensor Compute - An LLM Serving Study"))
@@ -489,6 +552,27 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(effective_daily_paper_limit(7, 50), 12)
         self.assertEqual(effective_daily_paper_limit(30, 50), 30)
 
+    def test_balanced_selection_round_robins_topics_before_filling(self) -> None:
+        papers = []
+        for index, (topic_id, score) in enumerate(
+            [
+                ("a", 0.95),
+                ("a", 0.94),
+                ("a", 0.93),
+                ("b", 0.70),
+                ("b", 0.69),
+                ("c", 0.50),
+            ]
+        ):
+            item = paper(f"{topic_id}-{index}", "high", f"2026-01-0{index + 1}T00:00:00+00:00")
+            item["best_match"]["topic_id"] = topic_id
+            item["best_match"]["score"] = score
+            papers.append(item)
+
+        selected = select_balanced_papers(papers, max_total=5, max_per_topic=2)
+
+        self.assertEqual([item["id"] for item in selected], ["a-0", "b-3", "c-5", "a-1", "b-4"])
+
     def test_conference_abstract_finder_tries_sources_after_arxiv_failure(self) -> None:
         semantic_candidate = {
             "id": "s2:abc",
@@ -646,6 +730,16 @@ class RetentionTest(unittest.TestCase):
         self.assertFalse(is_relevant_enough(weak_conference, {"score": 0.05, "keyword_hits": []}))
         self.assertTrue(is_relevant_enough(keyword_match, {"score": 0.04, "keyword_hits": ["KV cache compression"]}))
 
+    def test_relevance_filter_uses_stricter_conference_title_only_threshold(self) -> None:
+        title_only_conference = {
+            "title": "Orthogonal Subspace Decomposition for Generalizable Image Detection",
+            "summary": "DBLP 题录：CVPR 2025 会议论文。",
+            "source_type": "conference",
+        }
+
+        self.assertFalse(is_relevant_enough(title_only_conference, {"score": 0.25, "keyword_hits": []}))
+        self.assertTrue(is_relevant_enough(title_only_conference, {"score": 0.35, "keyword_hits": []}))
+
     def test_relevance_filter_can_require_multimodal_context_for_conferences(self) -> None:
         os.environ["CONFERENCE_REQUIRED_CONTEXT_TERMS"] = "vision-language,visual,multimodal,LVLM,MLLM"
         generic_hallucination = {
@@ -735,6 +829,7 @@ class RetentionTest(unittest.TestCase):
         active = paper("isca-2025", "low", "2025-01-01T00:00:00+00:00")
         active["source_type"] = "conference"
         active["conference"] = {"id": "isca", "year": 2025}
+        active["best_match"]["keyword_hits"] = ["active conference topic"]
         stale = paper("isca-2024", "low", "2024-01-01T00:00:00+00:00")
         stale["source_type"] = "conference"
         stale["conference"] = {"id": "isca", "year": 2024}
@@ -1058,6 +1153,107 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual(conference_payload["stats"]["conference_candidate_paper_count"], 1)
         self.assertEqual(conference_payload["papers"][0]["abstract_source"], "OpenAlex")
         self.assertEqual(conference_payload["papers"][0]["best_match"]["keyword_hits"], ["hallucination evaluation", "visual grounding"])
+
+    def test_collect_uses_daily_and_conference_topic_scopes(self) -> None:
+        now = dt.datetime.now(dt.timezone.utc)
+        config = {
+            "sources": [{"type": "arxiv", "name": "arXiv"}],
+            "conference_sources": {
+                "enabled": True,
+                "years": [2025],
+                "venues": [
+                    {
+                        "id": "iclr",
+                        "name": "ICLR",
+                        "group": "machine learning",
+                        "dblp_toc_patterns": ["db/conf/iclr/iclr{year}.bht"],
+                    }
+                ],
+            },
+            "topics": [
+                {
+                    "id": "daily_only",
+                    "name": "Daily Hallucination",
+                    "description": "daily hallucination stream",
+                    "keywords": ["daily hallucination"],
+                    "arxiv_categories": ["cs.CV"],
+                    "conference_enabled": False,
+                },
+                {
+                    "id": "conference_only",
+                    "name": "Agent Memory Systems",
+                    "description": "agent memory lifecycle",
+                    "keywords": ["agent memory"],
+                    "arxiv_categories": ["cs.AI"],
+                    "daily_enabled": False,
+                },
+            ],
+        }
+        daily_paper = {
+            "id": "2601.00003v1",
+            "source": "arXiv",
+            "title": "Daily Hallucination Tracking for Multimodal Models",
+            "authors": ["Ada Example"],
+            "summary": "This paper studies daily hallucination tracking for multimodal models. " * 3,
+            "published": now.isoformat(),
+            "updated": now.isoformat(),
+            "paper_url": "https://arxiv.org/abs/2601.00003v1",
+            "pdf_url": "https://arxiv.org/pdf/2601.00003v1",
+            "categories": ["cs.CV"],
+        }
+        conference_paper = {
+            "id": "dblp:conf/iclr/Memory25",
+            "source": "DBLP · ICLR",
+            "source_type": "conference",
+            "title": "Agent Memory Systems for Long-Horizon LLM Agents",
+            "authors": ["Grace Example"],
+            "summary": "DBLP 题录：ICLR 2025 会议论文。",
+            "published": "2025-01-01T00:00:00+00:00",
+            "updated": "2025-01-01T00:00:00+00:00",
+            "paper_url": "https://dblp.org/rec/conf/iclr/Memory25",
+            "pdf_url": "",
+            "categories": ["ICLR", "machine learning", "2025"],
+            "conference": {"id": "iclr", "name": "ICLR", "year": 2025},
+        }
+
+        os.environ["MAX_CONFERENCE_ABSTRACT_ENRICHMENTS"] = "0"
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            config_path = tmp_path / "interests.json"
+            output_path = tmp_path / "papers.json"
+            conference_output_path = tmp_path / "conference.json"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            with (
+                mock.patch("scripts.collect_papers.fetch_source_topic", return_value=[daily_paper]) as fetch_topic_mock,
+                mock.patch("scripts.collect_papers.fetch_dblp_conference", return_value=[conference_paper]),
+                mock.patch("scripts.collect_papers.time.sleep"),
+            ):
+                daily_payload = collect(
+                    config_path,
+                    output_path,
+                    conference_output_path,
+                    days=7,
+                    max_per_topic=1,
+                    max_summaries=0,
+                    max_new_papers=10,
+                    max_stored_papers=10,
+                    max_new_conference_papers=10,
+                    max_stored_conference_papers=10,
+                    max_data_bytes=0,
+                    incremental_since_last_run=False,
+                    recent_history_days=45,
+                    clear_cache=True,
+                )
+
+            conference_payload = json.loads(conference_output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(fetch_topic_mock.call_count, 1)
+        self.assertEqual(fetch_topic_mock.call_args.args[1].id, "daily_only")
+        self.assertEqual([topic["id"] for topic in daily_payload["topics"]], ["daily_only"])
+        self.assertEqual([topic["id"] for topic in conference_payload["topics"]], ["conference_only"])
+        self.assertEqual(daily_payload["papers"][0]["best_match"]["topic_id"], "daily_only")
+        self.assertEqual(conference_payload["papers"][0]["best_match"]["topic_id"], "conference_only")
 
     def test_collect_enriches_daily_arxiv_with_trusted_institutions(self) -> None:
         now = dt.datetime.now(dt.timezone.utc)
