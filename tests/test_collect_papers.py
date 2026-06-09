@@ -23,6 +23,7 @@ from scripts.collect_papers import (
     effective_daily_paper_limit,
     enrich_conference_paper_from_arxiv,
     fetch_arxiv,
+    fallback_summary,
     find_google_scholar_serpapi_by_title,
     find_conference_abstract_by_title,
     google_scholar_paper_from_item,
@@ -796,6 +797,20 @@ class RetentionTest(unittest.TestCase):
 
         self.assertIn("HTTP 400", message)
         self.assertIn("Model Not Exist", message)
+
+    def test_fallback_summary_distinguishes_api_failure_from_missing_api(self) -> None:
+        summary = fallback_summary(
+            {
+                "title": "A multimodal hallucination paper",
+                "summary": "This paper studies hallucination in multimodal large language models.",
+            },
+            {"reason": "matches hallucination"},
+            "LLM API request failed: HTTP 401",
+        )
+
+        self.assertIn("模型 API 调用失败", summary["problem"])
+        self.assertIn("HTTP 401", summary["limitations"])
+        self.assertNotIn("未配置模型 API", summary["problem"])
 
     def test_merge_retains_previous_high_medium_and_recent_low(self) -> None:
         now = dt.datetime(2026, 5, 28, tzinfo=dt.timezone.utc)

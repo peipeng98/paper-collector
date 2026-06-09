@@ -1913,9 +1913,18 @@ def should_summarize_paper_with_llm(paper: dict[str, Any]) -> bool:
     return True
 
 
-def fallback_summary(paper: dict[str, Any], best_match: dict[str, Any]) -> dict[str, str]:
+def fallback_summary(paper: dict[str, Any], best_match: dict[str, Any], failure_reason: str = "") -> dict[str, str]:
     abstract = paper.get("summary", "")
     first_sentence = re.split(r"(?<=[.!?])\s+", abstract)[0] if abstract else ""
+    if failure_reason:
+        return {
+            "problem": "模型 API 调用失败，当前仅基于标题、摘要和关键词生成基础摘要。",
+            "method": first_sentence[:300] if first_sentence else "请打开论文链接查看方法细节。",
+            "innovation": "需要修复模型 API 后自动抽取更精确的中文创新点。",
+            "evidence": "来源摘要可在论文原文中核验。",
+            "limitations": f"模型摘要未生成：{failure_reason[:300]}",
+            "why_relevant": best_match.get("reason", "与配置方向存在文本匹配。"),
+        }
     if paper.get("source_type") == "conference" and not has_meaningful_summary(paper):
         return {
             "problem": "DBLP 题录没有摘要，且未在外部论文索引中找到足够可靠的同题论文摘要。",
@@ -2060,7 +2069,7 @@ def summarize_with_llm(topic: Topic, paper: dict[str, Any], base_match: dict[str
         data = call_openai_compatible(prompt)
     except Exception as exc:
         print(f"Warning: LLM summary failed for {paper.get('id')}: {exc}", file=sys.stderr)
-        return fallback_summary(paper, base_match), base_match
+        return fallback_summary(paper, base_match, str(exc)), base_match
 
     summary = {
         "problem": str(data.get("problem", "")),
