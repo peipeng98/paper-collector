@@ -805,11 +805,13 @@ class RetentionTest(unittest.TestCase):
                 "summary": "This paper studies hallucination in multimodal large language models.",
             },
             {"reason": "matches hallucination"},
-            "LLM API request failed: HTTP 401",
+            "LLM API request failed: HTTP 401: Your api key: ****abcd is invalid",
         )
 
         self.assertIn("模型 API 调用失败", summary["problem"])
         self.assertIn("HTTP 401", summary["limitations"])
+        self.assertNotIn("api key", summary["limitations"].lower())
+        self.assertNotIn("abcd", summary["limitations"])
         self.assertNotIn("未配置模型 API", summary["problem"])
 
     def test_merge_retains_previous_high_medium_and_recent_low(self) -> None:

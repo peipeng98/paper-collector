@@ -1913,6 +1913,21 @@ def should_summarize_paper_with_llm(paper: dict[str, Any]) -> bool:
     return True
 
 
+def public_llm_failure_reason(failure_reason: str) -> str:
+    reason = normalize_space(failure_reason)
+    if not reason:
+        return "unknown error"
+    lower_reason = reason.lower()
+    sensitive_markers = ("api key", "apikey", "authorization", "bearer", "authentication fails", "invalid api")
+    if any(marker in lower_reason for marker in sensitive_markers):
+        status_match = re.search(r"\bHTTP\s+\d{3}\b", reason, flags=re.IGNORECASE)
+        if status_match:
+            return f"{status_match.group(0).upper()}: authentication failed"
+        return "authentication failed"
+    reason = re.sub(r"sk-[A-Za-z0-9_-]{6,}", "sk-***", reason)
+    return reason[:300]
+
+
 def fallback_summary(paper: dict[str, Any], best_match: dict[str, Any], failure_reason: str = "") -> dict[str, str]:
     abstract = paper.get("summary", "")
     first_sentence = re.split(r"(?<=[.!?])\s+", abstract)[0] if abstract else ""
@@ -1922,7 +1937,7 @@ def fallback_summary(paper: dict[str, Any], best_match: dict[str, Any], failure_
             "method": first_sentence[:300] if first_sentence else "请打开论文链接查看方法细节。",
             "innovation": "需要修复模型 API 后自动抽取更精确的中文创新点。",
             "evidence": "来源摘要可在论文原文中核验。",
-            "limitations": f"模型摘要未生成：{failure_reason[:300]}",
+            "limitations": f"模型摘要未生成：{public_llm_failure_reason(failure_reason)}",
             "why_relevant": best_match.get("reason", "与配置方向存在文本匹配。"),
         }
     if paper.get("source_type") == "conference" and not has_meaningful_summary(paper):
